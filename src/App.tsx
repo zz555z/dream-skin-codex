@@ -19,6 +19,21 @@ function isImageFileName(name: string): boolean {
   return IMAGE_EXT.test(name);
 }
 
+/** Theme display name: strip extension from image file name. */
+function themeNameFromImage(fileName: string): string {
+  const base = fileNameFromPath(fileName).trim();
+  const stem = base.replace(/\.[^.]+$/, "").trim();
+  return stem || base || "我的主题";
+}
+
+/** Prefer user-entered name; otherwise image file stem. */
+function resolveThemeName(inputName: string, imageFileName?: string | null): string {
+  const typed = inputName.trim();
+  if (typed) return typed;
+  if (imageFileName) return themeNameFromImage(imageFileName);
+  return "我的主题";
+}
+
 function Chip({ text, kind = "" }: { text: string; kind?: string }) {
   return <span className={`chip ${kind}`.trim()}>{text}</span>;
 }
@@ -134,16 +149,43 @@ export default function App() {
 
   const formFields = useMemo(
     () => ({
-      name:
-        themeName.trim() ||
-        selectedImage?.name.replace(/\.[^.]+$/, "") ||
-        "我的主题",
+      // 未填写主题名时，使用图片文件名（去扩展名）
+      name: resolveThemeName(themeName, selectedImage?.name),
       appearance,
       safeArea,
       taskMode,
       saveLibrary: true,
     }),
     [appearance, safeArea, selectedImage, taskMode, themeName],
+  );
+
+  const importSelectedImage = useCallback(
+    async (options?: { applyNow?: boolean }) => {
+      if (!selectedImage) {
+        throw new Error("请先选择一张图片");
+      }
+      const current = selectedImage;
+      const applyNow = options?.applyNow ?? true;
+      const base = {
+        ...formFields,
+        saveLibrary: true,
+        applyNow,
+      };
+      const result =
+        current.source === "path"
+          ? await api.importTheme({
+              ...base,
+              path: current.path,
+            })
+          : await api.importTheme({
+              ...base,
+              fileBase64: await fileToBase64(current.file),
+              fileName: current.file.name,
+            });
+      setSelectedImage(null);
+      return result;
+    },
+    [formFields, selectedImage],
   );
 
   const acceptSelectedImage = useCallback(
@@ -157,8 +199,9 @@ export default function App() {
         return;
       }
       setSelectedImage(next);
+      // 主题名为空时，自动填入图片名；用户已填写则不覆盖
       if (!themeName.trim()) {
-        setThemeName(next.name.replace(/\.[^.]+$/, ""));
+        setThemeName(themeNameFromImage(next.name));
       }
     },
     [showToast, themeName],
@@ -312,7 +355,6 @@ export default function App() {
 
       <header className="top" data-tauri-drag-region>
         <div className="brand">
-          <span className="mark">◉</span>
           <div>
             <p className="eyebrow">Codex Desktop · Local CDP · {status?.platform || "…"}</p>
             <h1>Dream Skin 换肤台</h1>
@@ -571,33 +613,30 @@ export default function App() {
               className="apply-btn"
               disabled={busy || !installed || !selectedImage}
               onClick={() => {
-                if (!selectedImage) return;
-                const current = selectedImage;
+                void runAction("应用已选图片", () => importSelectedImage({ applyNow: true }), {
+                  overlayText: "正在应用已选图片…",
+                  successText: "图片主题应用成功",
+                });
+              }}
+            >
+              应用已选图片
+            </button>
+            <button
+              type="button"
+              className="library-btn"
+              disabled={busy || !installed || !selectedImage}
+              onClick={() => {
                 void runAction(
-                  "应用已选图片",
-                  async () => {
-                    const result =
-                      current.source === "path"
-                        ? await api.importTheme({
-                            ...formFields,
-                            path: current.path,
-                          })
-                        : await api.importTheme({
-                            ...formFields,
-                            fileBase64: await fileToBase64(current.file),
-                            fileName: current.file.name,
-                          });
-                    setSelectedImage(null);
-                    return result;
-                  },
+                  "添加到主题库",
+                  () => importSelectedImage({ applyNow: false }),
                   {
-                    overlayText: "正在应用已选图片…",
-                    successText: "图片主题应用成功",
+                    overlayText: "正在添加到主题库…",
+                    successText: "已添加到主题库",
                   },
                 );
               }}
             >
-              应用已选图片
+              添加到主题库
             </button>
           </div>
         </section>

@@ -6,7 +6,7 @@ STATE_THEMES="${HOME}/Library/Application Support/CodexDreamSkinStudio/themes"
 ENGINE_HOME="${HOME}/.codex/codex-dream-skin-studio"
 
 mkdir -p "$STATE_THEMES"
-for slug in preset-arina-hashimoto preset-gothic-void-crusade preset-little-cat preset-red-fortune; do
+for slug in preset-arina-hashimoto preset-gothic-void-crusade preset-little-cat preset-hebei-caihua; do
   if [ ! -d "$SRC/$slug" ]; then
     echo "missing bundled preset: $slug" >&2
     continue
@@ -18,13 +18,16 @@ for slug in preset-arina-hashimoto preset-gothic-void-crusade preset-little-cat 
   echo "seeded $slug"
 done
 
-# remove converted customs if still present
 /bin/rm -rf \
+  "$STATE_THEMES/preset-red-fortune" \
   "$STATE_THEMES/img-20260721105603-62042" \
-  "$STATE_THEMES/img-20260721111435-84797"
+  "$STATE_THEMES/img-20260721111435-84797" \
+  "$STATE_THEMES/img-20260721140655-16306"
 
 if [ -d "$ENGINE_HOME/presets" ]; then
-  for slug in preset-little-cat preset-red-fortune; do
+  /bin/rm -rf "$ENGINE_HOME/presets/preset-red-fortune"
+  for slug in preset-little-cat preset-hebei-caihua; do
+    [ -d "$SRC/$slug" ] || continue
     mkdir -p "$ENGINE_HOME/presets/$slug"
     /bin/cp -f "$SRC/$slug/"* "$ENGINE_HOME/presets/$slug/"
   done

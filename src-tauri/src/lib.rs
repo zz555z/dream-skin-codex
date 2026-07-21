@@ -116,6 +116,7 @@ struct ImportPayload {
     safe_area: Option<String>,
     task_mode: Option<String>,
     save_library: Option<bool>,
+    apply_now: Option<bool>,
     file_base64: Option<String>,
     file_name: Option<String>,
 }
@@ -142,6 +143,7 @@ async fn import_dream_theme(
                 safe_area: payload.safe_area,
                 task_mode: payload.task_mode,
                 save_library: payload.save_library,
+                apply_now: payload.apply_now,
             },
         )
         .map_err(|e| e.to_string())
@@ -189,6 +191,7 @@ async fn pick_and_import_theme(
                 safe_area: payload.safe_area,
                 task_mode: payload.task_mode,
                 save_library: payload.save_library.or(Some(true)),
+                apply_now: payload.apply_now.or(Some(true)),
             },
         )
         .map_err(|e| e.to_string())

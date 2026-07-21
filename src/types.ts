@@ -40,6 +40,8 @@ export type ImportPayload = {
   safeArea?: string;
   taskMode?: string;
   saveLibrary?: boolean;
+  /** false = only stage into theme library, do not inject */
+  applyNow?: boolean;
   fileBase64?: string;
   fileName?: string;
 };

@@ -77,6 +77,8 @@ pub struct ImportOptions {
     pub safe_area: Option<String>,
     pub task_mode: Option<String>,
     pub save_library: Option<bool>,
+    /// When false, only save into the theme library (no live inject).
+    pub apply_now: Option<bool>,
 }
 
 fn home_dir() -> EngineResult<PathBuf> {
@@ -1027,7 +1029,13 @@ pub fn import_image_theme(file_path: &str, options: ImportOptions) -> EngineResu
         .and_then(|s| s.to_str())
         .unwrap_or("我的主题")
         .to_string();
-    let theme_name = safe_theme_name(options.name.as_deref().unwrap_or(&fallback_name));
+    // Empty / whitespace name → fall back to image file stem.
+    let provided = options
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let theme_name = safe_theme_name(provided.unwrap_or(&fallback_name));
     let appearance = options.appearance.as_deref().unwrap_or("auto");
     let safe_area = options.safe_area.as_deref().unwrap_or("auto");
     let task_mode = options.task_mode.as_deref().unwrap_or("auto");
@@ -1050,6 +1058,9 @@ pub fn import_image_theme(file_path: &str, options: ImportOptions) -> EngineResu
     }
 
     let path_str = path.to_string_lossy().to_string();
+    let apply_now = options.apply_now.unwrap_or(true);
+    let save_library = options.save_library.unwrap_or(true);
+
     if cfg!(target_os = "windows") {
         let mut args = vec![
             "-ImagePath",
@@ -1063,29 +1074,35 @@ pub fn import_image_theme(file_path: &str, options: ImportOptions) -> EngineResu
             "-TaskMode",
             task_mode,
         ];
-        if options.save_library.unwrap_or(true) {
+        // Library-only always persists; apply path keeps previous default.
+        if save_library || !apply_now {
             args.push("-SaveLibrary");
+        }
+        if !apply_now {
+            args.push("-NoApply");
         }
         return run_windows_script("app-import-image.ps1", &args);
     }
 
     // load-image-theme-macos.sh already copies the theme into themes/img-*.
     // Do not save again here, or the library shows two identical entries.
-    let mut result = run_macos_script(
-        "load-image-theme-macos.sh",
-        &[
-            "--file",
-            &path_str,
-            "--name",
-            &theme_name,
-            "--appearance",
-            appearance,
-            "--safe-area",
-            safe_area,
-            "--task-mode",
-            task_mode,
-        ],
-    )?;
+    let mut mac_args = vec![
+        "--file".to_string(),
+        path_str.clone(),
+        "--name".to_string(),
+        theme_name.clone(),
+        "--appearance".to_string(),
+        appearance.to_string(),
+        "--safe-area".to_string(),
+        safe_area.to_string(),
+        "--task-mode".to_string(),
+        task_mode.to_string(),
+    ];
+    if !apply_now {
+        mac_args.push("--no-apply".to_string());
+    }
+    let mac_refs: Vec<&str> = mac_args.iter().map(String::as_str).collect();
+    let mut result = run_macos_script("load-image-theme-macos.sh", &mac_refs)?;
     if result.ok {
         if let Some(theme_id) = latest_imported_theme_id() {
             result.theme_id = Some(theme_id);
