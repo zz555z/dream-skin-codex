@@ -543,11 +543,26 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
         .or_else(|| active_theme.as_ref().and_then(|v| read_json_field(v, "id")))
         .unwrap_or_default();
 
-    let active_image_data_url = active_theme.as_ref().and_then(|theme| {
-        let image = read_json_field(theme, "image")?;
-        let path = theme_dir().ok()?.join(Path::new(&image).file_name()?);
-        image_to_data_url(&path).ok()
-    });
+    // Prefer the currently applied library pack for the left-card preview.
+    // Fall back to the active theme dir only when no applied id is available.
+    let active_image_data_url = {
+        let from_applied = (!applied_theme_id.is_empty())
+            .then_some(applied_theme_id.as_str())
+            .and_then(|id| {
+                let pack = themes_root().ok()?.join(id);
+                let theme = read_json_file(&pack.join("theme.json")).ok()?;
+                let image = read_json_field(&theme, "image")?;
+                let path = pack.join(Path::new(&image).file_name()?);
+                image_to_data_url(&path).ok()
+            });
+        from_applied.or_else(|| {
+            active_theme.as_ref().and_then(|theme| {
+                let image = read_json_field(theme, "image")?;
+                let path = theme_dir().ok()?.join(Path::new(&image).file_name()?);
+                image_to_data_url(&path).ok()
+            })
+        })
+    };
 
     let codex_running = status_json
         .as_ref()
@@ -1011,7 +1026,35 @@ fn latest_imported_theme_id() -> Option<String> {
     best.map(|(_, id)| id)
 }
 
-pub fn import_image_theme(file_path: &str, options: ImportOptions) -> EngineResult<ActionResult> {
+pub fn import_image_theme(
+    app: Option<&AppHandle>,
+    file_path: &str,
+    options: ImportOptions,
+) -> EngineResult<ActionResult> {
+    if cfg!(target_os = "macos") {
+        if let Some(app) = app {
+            let _ = sync_engine_files(
+                app,
+                &[
+                    "scripts/load-image-theme-macos.sh",
+                    "scripts/write-theme.mjs",
+                    "scripts/common-macos.sh",
+                ],
+            );
+        }
+    } else if cfg!(target_os = "windows") {
+        if let Some(app) = app {
+            let _ = sync_engine_files(
+                app,
+                &[
+                    "scripts/app-import-image.ps1",
+                    "scripts/theme-windows.ps1",
+                    "scripts/common-windows.ps1",
+                ],
+            );
+        }
+    }
+
     let path = PathBuf::from(file_path);
     if !path.is_file() {
         return Err(EngineError::Message("图片文件不存在".into()));

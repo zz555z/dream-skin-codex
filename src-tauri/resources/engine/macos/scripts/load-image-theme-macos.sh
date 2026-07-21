@@ -78,9 +78,18 @@ progress "Loading image..."
 # Fast Node for write-theme (avoid full codesign when possible)
 ensure_node_runtime
 
+# Library-only import must NOT rewrite the active theme dir; left-card preview
+# reads THEME_DIR, which should only change when the skin is actually applied.
+if [ "$APPLY_NOW" = "true" ]; then
+  work_dir="$THEME_DIR"
+else
+  work_dir="$THEMES_ROOT/$theme_id"
+fi
+/bin/mkdir -p "$work_dir" "$IMAGES_DIR" "$THEMES_ROOT"
+
 image_name="background.jpg"
-temporary="$THEME_DIR/.background.$$.tmp.jpg"
-prepared="$THEME_DIR/$image_name"
+temporary="$work_dir/.background.$$.tmp.jpg"
+prepared="$work_dir/$image_name"
 cleanup_temporary() { /bin/rm -f "$temporary"; }
 trap cleanup_temporary EXIT
 
@@ -104,7 +113,7 @@ PREPARED_BYTES="$(/usr/bin/stat -f '%z' "$temporary")"
 
 theme_args=(
   custom
-  --output-dir "$THEME_DIR"
+  --output-dir "$work_dir"
   --image "$image_name"
   --name "$THEME_NAME"
   --tagline "Make something wonderful."
@@ -116,13 +125,35 @@ theme_args=(
 [ -n "$FOCUS_X" ] && theme_args+=(--focus-x "$FOCUS_X")
 [ -n "$FOCUS_Y" ] && theme_args+=(--focus-y "$FOCUS_Y")
 "$NODE" "$SCRIPT_DIR/write-theme.mjs" "${theme_args[@]}" >/dev/null
-/usr/bin/find "$THEME_DIR" -maxdepth 1 -type f -name 'background.*' ! -name "$image_name" -delete
+/usr/bin/find "$work_dir" -maxdepth 1 -type f -name 'background.*' ! -name "$image_name" -delete
 trap - EXIT
 
-lib_dir="$THEMES_ROOT/$theme_id"
-/bin/mkdir -p "$lib_dir"
-/bin/cp -f "$THEME_DIR/$image_name" "$THEME_DIR/theme.json" "$lib_dir/"
-/bin/chmod 600 "$lib_dir/"* 2>/dev/null || true
+stamp_theme_id() {
+  local file="$1"
+  local id="$2"
+  "$NODE" -e '
+    const fs = require("node:fs");
+    const file = process.argv[1];
+    const id = process.argv[2];
+    try {
+      const theme = JSON.parse(fs.readFileSync(file, "utf8"));
+      theme.id = id;
+      fs.writeFileSync(file, JSON.stringify(theme, null, 2) + "\n");
+    } catch {}
+  ' "$file" "$id" 2>/dev/null || true
+}
+
+if [ "$APPLY_NOW" != "true" ]; then
+  stamp_theme_id "$work_dir/theme.json" "$theme_id"
+  /bin/chmod 600 "$work_dir/"* 2>/dev/null || true
+else
+  # When applying, also keep a library copy under themes/img-*.
+  lib_dir="$THEMES_ROOT/$theme_id"
+  /bin/mkdir -p "$lib_dir"
+  /bin/cp -f "$work_dir/$image_name" "$work_dir/theme.json" "$lib_dir/"
+  /bin/chmod 600 "$lib_dir/"* 2>/dev/null || true
+  stamp_theme_id "$lib_dir/theme.json" "$theme_id"
+fi
 
 dest_lib_img="$IMAGES_DIR/$(/usr/bin/basename "$IMAGE")"
 src_dir="$(cd "$(dirname "$IMAGE")" && pwd -P)"
@@ -132,6 +163,7 @@ if [ "$src_dir/$(/usr/bin/basename "$IMAGE")" != "$img_dir/$(/usr/bin/basename "
 fi
 
 if [ "$APPLY_NOW" != "true" ]; then
+  printf 'THEME_ID=%s\n' "$theme_id"
   progress "Ready: ${THEME_NAME} (not applied)"
   exit 0
 fi

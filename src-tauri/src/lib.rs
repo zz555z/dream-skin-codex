@@ -123,6 +123,7 @@ struct ImportPayload {
 
 #[tauri::command]
 async fn import_dream_theme(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     payload: ImportPayload,
 ) -> Result<ActionResult, String> {
@@ -136,6 +137,7 @@ async fn import_dream_theme(
             return Err("未提供图片".into());
         };
         import_image_theme(
+            Some(&app),
             &path,
             ImportOptions {
                 name: payload.name,
@@ -184,6 +186,7 @@ async fn pick_and_import_theme(
 
     let result = tauri::async_runtime::spawn_blocking(move || {
         import_image_theme(
+            Some(&app),
             &path,
             ImportOptions {
                 name: payload.name,

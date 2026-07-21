@@ -182,7 +182,10 @@ export default function App() {
               fileBase64: await fileToBase64(current.file),
               fileName: current.file.name,
             });
-      setSelectedImage(null);
+      if (result.ok) {
+        setSelectedImage(null);
+        setThemeName("");
+      }
       return result;
     },
     [formFields, selectedImage],
