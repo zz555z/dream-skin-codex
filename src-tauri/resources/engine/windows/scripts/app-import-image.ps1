@@ -1,0 +1,32 @@
+[CmdletBinding()]
+param(
+  [Parameter(Mandatory = $true)][string]$ImagePath,
+  [string]$Name = '我的主题',
+  [string]$Appearance = 'auto',
+  [string]$SafeArea = 'auto',
+  [string]$TaskMode = 'auto',
+  [switch]$NoApply,
+  [switch]$SaveLibrary
+)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common-windows.ps1')
+. (Join-Path $PSScriptRoot 'theme-windows.ps1')
+$StateRoot = Join-Path $env:LOCALAPPDATA 'CodexDreamSkin'
+$full = [System.IO.Path]::GetFullPath($ImagePath)
+if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "Image not found: $full" }
+$theme = [pscustomobject]@{
+  id = 'custom'
+  name = $Name
+  appearance = $Appearance
+  art = [pscustomobject]@{ focusX = $null; focusY = $null; safeArea = $SafeArea; taskMode = $TaskMode }
+  palette = [pscustomobject]@{}
+}
+$active = Set-DreamSkinActiveTheme -ImagePath $full -Theme $theme -Name $Name -StateRoot $StateRoot
+Write-Host ("Active theme set: " + $active.Theme.name)
+if ($SaveLibrary) {
+  $saved = Save-DreamSkinCurrentTheme -Name $Name -StateRoot $StateRoot
+  Write-Host ("THEME_ID=" + $saved.Theme.id)
+}
+if (-not $NoApply) {
+  & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
+}

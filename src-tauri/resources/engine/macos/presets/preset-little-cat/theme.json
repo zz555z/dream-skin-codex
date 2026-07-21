@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-little-cat",
+  "name": "小猫咪",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "软萌治愈，陪你安静开工。",
+  "projectPrefix": "选择项目 · ",
+  "projectLabel": "◉  选择项目",
+  "statusText": "DREAM SKIN ONLINE",
+  "quote": "MAKE SOMETHING WONDERFUL",
+  "image": "background.jpg",
+  "appearance": "auto",
+  "art": {
+    "focusX": 0.72,
+    "focusY": 0.45,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  }
+}

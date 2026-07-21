@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Intel
+            platform: macos-latest
+            rustTarget: x86_64-apple-darwin
+            tauriArgs: --target x86_64-apple-darwin --bundles dmg,app
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            rustTarget: aarch64-apple-darwin
+            tauriArgs: --target aarch64-apple-darwin --bundles dmg,app
+          - name: Windows
+            platform: windows-latest
+            rustTarget: ""
+            tauriArgs: --bundles nsis
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust target
+        if: matrix.rustTarget != ''
+        run: rustup target add ${{ matrix.rustTarget }}
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and upload Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: "Dream Skin ${{ inputs.tag || github.ref_name }}"
+          releaseBody: |
+            ## 下载说明
+
+            请根据你的系统下载对应安装包：
+
+            | 系统 | 下载文件 |
+            | --- | --- |
+            | macOS Apple Silicon（M 系列） | `Dream.Skin_*_aarch64.dmg` |
+            | macOS Intel | `Dream.Skin_*_x64.dmg` |
+            | Windows 64 位 | `Dream.Skin_*_x64-setup.exe` |
+
+            普通用户通常不需要下载 `*.app.tar.gz` 或 `Source code`。
+
+            ## 使用前
+
+            1. 先安装并至少启动过一次官方 Codex / ChatGPT 桌面端
+            2. **完全退出** Codex / ChatGPT
+            3. 打开 Dream Skin → 一键安装引擎 → 应用皮肤
+
+            ## macOS 安全提示
+
+            当前 macOS 安装包默认没有接入 Apple Developer 签名和公证。
+            如果系统提示“已损坏，无法打开”，可把 App 拖到“应用程序”后在终端执行：
+
+            ```bash
+            xattr -cr /Applications/Dream\ Skin.app
+            ```
+
+            然后重新打开。
+
+            ## 说明
+
+            - 不会修改官方 Codex / ChatGPT 安装包
+            - CDP 仅绑定本机 loopback
+            - 内置 4 套预设主题，也支持导入自定义纯背景图
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.tauriArgs }}
