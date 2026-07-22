@@ -7,7 +7,7 @@ import { readImageMetadata } from "./image-metadata.mjs";
 const scriptPath = fileURLToPath(import.meta.url);
 const here = path.dirname(scriptPath);
 const root = path.resolve(here, "..");
-const SKIN_VERSION = "1.2.2";
+const SKIN_VERSION = "1.2.3";
 const MAX_ART_BYTES = 16 * 1024 * 1024;
 const STRONG_THEME_AUDIT_MS = 30000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
@@ -898,11 +898,11 @@ async function verifySession(session) {
         y: document.documentElement.scrollHeight > document.documentElement.clientHeight,
       },
     };
+    // Codex updates can change sidebar/composer/home markup without removing
+    // the applied skin. Only use stable skin-owned markers for verification;
+    // layout probes remain diagnostic data rather than failure conditions.
     result.pass = result.installed && result.version === result.expectedVersion &&
-      result.stylePresent && result.chromePresent &&
-      result.chromePointerEvents === 'none' && Boolean(result.composer) && Boolean(result.sidebar) &&
-      (!result.homePresent || (Boolean(result.hero) &&
-        (!result.suggestionsPresent || (result.cards.length >= 2 && result.cards.length <= 4))));
+      result.stylePresent && result.chromePresent;
     return result;
   })()`);
 }
@@ -1373,6 +1373,10 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
   }
   if (/dispatchKeyEvent|dispatchMouseEvent/.test(capture.toString())) {
     throw new Error("Screenshot capture must not dispatch renderer input events");
+  }
+  const verificationSource = verifySession.toString();
+  if (/Boolean\(result\.(?:composer|sidebar)\)|result\.chromePointerEvents\s*===|result\.cards\.length/.test(verificationSource)) {
+    throw new Error("Skin verification must not depend on mutable Codex layout selectors");
   }
   console.log(JSON.stringify({ pass: true, version: SKIN_VERSION, test: "loopback-cdp-validation" }));
   } else if (options.mode === "check-payload") {
