@@ -316,6 +316,9 @@ function Write-DreamSkinDiagnosticEvent {
     [hashtable]$Data = @{},
     [string]$StateRoot = (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')
   )
+  $diagnosticsEnabled = ($env:DREAM_SKIN_LOGS -eq '1') -or
+    (Test-Path -LiteralPath (Join-Path $StateRoot 'enable-logs') -PathType Leaf)
+  if (-not $diagnosticsEnabled) { return }
   try {
     New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
     $path = Join-Path $StateRoot 'app-actions.log'

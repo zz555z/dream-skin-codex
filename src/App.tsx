@@ -72,6 +72,7 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const dropzoneRef = useRef<HTMLLabelElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const diagnosticClicksRef = useRef(0);
 
   const installed = Boolean(status?.installed);
   const canInstall = Boolean(status?.canInstall);
@@ -80,6 +81,19 @@ export default function App() {
     setToast({ message, kind });
     window.setTimeout(() => setToast(null), 1000);
   }, []);
+
+  const revealDiagnostics = useCallback(async () => {
+    if (status?.platform !== "windows") return;
+    diagnosticClicksRef.current += 1;
+    if (diagnosticClicksRef.current < 5) return;
+    diagnosticClicksRef.current = 0;
+    try {
+      await api.setDiagnostics(true);
+      showToast("诊断日志已开启，重现问题后提供 CodexDreamSkin 文件夹", "ok");
+    } catch (error) {
+      showToast(localizeErrorMessage(String(error), "无法开启诊断日志"), "err");
+    }
+  }, [showToast, status?.platform]);
 
   const copyBackgroundPrompt = useCallback(async () => {
     try {
@@ -381,7 +395,7 @@ export default function App() {
         <div className="brand">
           <div>
             <p className="eyebrow">Codex Desktop · Local CDP · {status?.platform || "…"}</p>
-            <h1>Dream Skin 换肤台</h1>
+            <h1 onClick={() => void revealDiagnostics()}>Dream Skin 换肤台</h1>
           </div>
         </div>
         <div className="top-actions">

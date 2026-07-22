@@ -1,9 +1,10 @@
 mod engine;
 
 use engine::{
-    apply_skin, decode_base64_payload, delete_theme, get_status, import_image_theme, install_engine,
-    list_themes, pause_skin, preview_image, restore_skin, save_upload_bytes, switch_theme,
-    ActionResult, ImportOptions, StatusSnapshot, ThemeSummary,
+    apply_skin, decode_base64_payload, delete_theme, get_status, import_image_theme,
+    initialize_windows_diagnostics, install_engine, list_themes, pause_skin, preview_image,
+    restore_skin, save_upload_bytes, set_windows_diagnostics, switch_theme, ActionResult,
+    ImportOptions, StatusSnapshot, ThemeSummary,
 };
 use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -70,7 +71,10 @@ async fn install_dream_engine(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ActionResult, String> {
-    run_blocking(&state, move || install_engine(&app).map_err(|e| e.to_string())).await
+    run_blocking(&state, move || {
+        install_engine(&app).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -78,7 +82,10 @@ async fn apply_dream_skin(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ActionResult, String> {
-    run_blocking(&state, move || apply_skin(Some(&app)).map_err(|e| e.to_string())).await
+    run_blocking(&state, move || {
+        apply_skin(Some(&app)).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -86,7 +93,10 @@ async fn pause_dream_skin(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ActionResult, String> {
-    run_blocking(&state, move || pause_skin(Some(&app)).map_err(|e| e.to_string())).await
+    run_blocking(&state, move || {
+        pause_skin(Some(&app)).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -94,7 +104,10 @@ async fn restore_dream_skin(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ActionResult, String> {
-    run_blocking(&state, move || restore_skin(&app).map_err(|e| e.to_string())).await
+    run_blocking(&state, move || {
+        restore_skin(&app).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -103,7 +116,10 @@ async fn switch_dream_theme(
     state: State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<ActionResult, String> {
-    run_blocking(&state, move || switch_theme(Some(&app), &id).map_err(|e| e.to_string())).await
+    run_blocking(&state, move || {
+        switch_theme(Some(&app), &id).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -112,6 +128,11 @@ async fn delete_dream_theme(
     id: String,
 ) -> Result<ActionResult, String> {
     run_blocking(&state, move || delete_theme(&id).map_err(|e| e.to_string())).await
+}
+
+#[tauri::command]
+fn set_diagnostics(enabled: bool) -> Result<bool, String> {
+    set_windows_diagnostics(enabled).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -214,6 +235,7 @@ async fn pick_and_import_theme(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    initialize_windows_diagnostics();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState {
@@ -229,6 +251,7 @@ pub fn run() {
             restore_dream_skin,
             switch_dream_theme,
             delete_dream_theme,
+            set_diagnostics,
             import_dream_theme,
             pick_and_import_theme,
         ])

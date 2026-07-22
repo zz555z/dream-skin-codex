@@ -448,15 +448,7 @@ fn run_windows_script(script_name: &str, args: &[&str]) -> EngineResult<ActionRe
     ];
     argv.extend_from_slice(args);
     let started_at = now_millis();
-    write_windows_action_log(
-        "script-start",
-        script_name,
-        args,
-        None,
-        "",
-        "",
-        0,
-    );
+    write_windows_action_log("script-start", script_name, args, None, "", "", 0);
     let (code, stdout, stderr) = match run_command("powershell.exe", &argv) {
         Ok(output) => output,
         Err(error) => {
@@ -493,7 +485,7 @@ fn write_windows_action_log(
     stderr: &str,
     duration_ms: u128,
 ) {
-    if !cfg!(target_os = "windows") {
+    if !windows_diagnostics_enabled() {
         return;
     }
     let Ok(root) = state_root() else { return };
@@ -501,15 +493,19 @@ fn write_windows_action_log(
         return;
     }
     let path = root.join("app-actions.log");
-    if fs::metadata(&path).map(|meta| meta.len() > 2 * 1024 * 1024).unwrap_or(false) {
+    if fs::metadata(&path)
+        .map(|meta| meta.len() > 2 * 1024 * 1024)
+        .unwrap_or(false)
+    {
         let previous = root.join("app-actions.log.1");
         let _ = fs::remove_file(&previous);
         let _ = fs::rename(&path, &previous);
     }
     let clip = |value: &str| value.chars().take(4000).collect::<String>();
     let paused = root.join("paused").is_file();
-    let engine_version = read_text_trimmed(&engine_root().unwrap_or_default().join("APP_ENGINE_VERSION"))
-        .unwrap_or_else(|| "unknown".into());
+    let engine_version =
+        read_text_trimmed(&engine_root().unwrap_or_default().join("APP_ENGINE_VERSION"))
+            .unwrap_or_else(|| "unknown".into());
     let record = serde_json::json!({
         "timestampMs": now_millis(),
         "source": "tauri",
@@ -524,6 +520,59 @@ fn write_windows_action_log(
         "stderr": clip(stderr),
     });
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{record}");
+    }
+}
+
+fn windows_diagnostics_enabled() -> bool {
+    if !cfg!(target_os = "windows") {
+        return false;
+    }
+    if std::env::var("DREAM_SKIN_LOGS")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    state_root()
+        .map(|root| root.join("enable-logs").is_file())
+        .unwrap_or(false)
+}
+
+pub fn set_windows_diagnostics(enabled: bool) -> EngineResult<bool> {
+    if !cfg!(target_os = "windows") {
+        return Err(EngineError::Message("仅 Windows 支持诊断日志".into()));
+    }
+    let root = state_root()?;
+    fs::create_dir_all(&root)?;
+    let marker = root.join("enable-logs");
+    if enabled {
+        OpenOptions::new().create(true).write(true).open(marker)?;
+    } else if marker.is_file() {
+        fs::remove_file(marker)?;
+    }
+    Ok(enabled)
+}
+
+/// Create a startup record so support can distinguish a new Windows build
+/// from an older installer even when no engine action has run yet.
+pub fn initialize_windows_diagnostics() {
+    if !windows_diagnostics_enabled() {
+        return;
+    }
+    let Ok(root) = state_root() else { return };
+    if fs::create_dir_all(&root).is_err() {
+        return;
+    }
+    let path = root.join("app-actions.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let record = serde_json::json!({
+            "timestampMs": now_millis(),
+            "source": "tauri",
+            "event": "app-start",
+            "engineVersion": read_text_trimmed(&engine_root().unwrap_or_default().join("APP_ENGINE_VERSION"))
+                .unwrap_or_else(|| "unknown".into()),
+        });
         let _ = writeln!(file, "{record}");
     }
 }
@@ -677,8 +726,18 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     let session = status_json
         .as_ref()
         .and_then(|v| read_json_field(v, "session"))
-        .or_else(|| state_json.as_ref().and_then(|v| read_json_field(v, "session")))
-        .unwrap_or_else(|| if installed { "ready".into() } else { "off".into() });
+        .or_else(|| {
+            state_json
+                .as_ref()
+                .and_then(|v| read_json_field(v, "session"))
+        })
+        .unwrap_or_else(|| {
+            if installed {
+                "ready".into()
+            } else {
+                "off".into()
+            }
+        });
 
     let default_port = if cfg!(target_os = "windows") {
         9335
@@ -715,7 +774,11 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
                 .as_ref()
                 .and_then(|v| read_json_field(v, "appliedThemeName"))
         })
-        .or_else(|| active_theme.as_ref().and_then(|v| read_json_field(v, "name")))
+        .or_else(|| {
+            active_theme
+                .as_ref()
+                .and_then(|v| read_json_field(v, "name"))
+        })
         .unwrap_or_default();
 
     let applied_theme_id = state_json
@@ -784,7 +847,6 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     })
 }
 
-
 /// Remove leftover duplicates from an older double-save import path:
 /// `load-image-theme-macos.sh` wrote `img-*` while the app also wrote `custom-*`
 /// for the same upload. Keep the `img-*` pack when name + image size match.
@@ -820,7 +882,8 @@ fn cleanup_legacy_double_save_duplicates() {
             continue;
         };
         let name = read_json_field(&theme, "name").unwrap_or_else(|| id.clone());
-        let image_name = read_json_field(&theme, "image").unwrap_or_else(|| "background.jpg".into());
+        let image_name =
+            read_json_field(&theme, "image").unwrap_or_else(|| "background.jpg".into());
         let mut image_path = entry
             .path()
             .join(Path::new(&image_name).file_name().unwrap_or_default());
@@ -908,7 +971,12 @@ pub fn list_themes() -> EngineResult<Vec<ThemeSummary>> {
             .join(Path::new(&image_name).file_name().unwrap_or_default());
         if !image_path.is_file() {
             // Windows presets may use dream-reference.jpg or background.jpg
-            for fallback in ["background.jpg", "dream-reference.jpg", "art.jpg", "art.png"] {
+            for fallback in [
+                "background.jpg",
+                "dream-reference.jpg",
+                "art.jpg",
+                "art.png",
+            ] {
                 let candidate = entry.path().join(fallback);
                 if candidate.is_file() {
                     image_path = candidate;
@@ -1006,11 +1074,7 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
         )?;
         let mut result = summarize(code, &stdout, &stderr);
         if result.ok {
-            result.message = format!(
-                "引擎已安装到 {}\n{}",
-                target.display(),
-                result.message
-            );
+            result.message = format!("引擎已安装到 {}\n{}", target.display(), result.message);
         }
         return Ok(result);
     }
@@ -1202,7 +1266,6 @@ fn now_millis() -> u128 {
         .map(|d| d.as_millis())
         .unwrap_or(0)
 }
-
 
 fn latest_imported_theme_id() -> Option<String> {
     let root = themes_root().ok()?;

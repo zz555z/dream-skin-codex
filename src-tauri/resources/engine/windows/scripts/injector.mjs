@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,7 @@ import { readImageMetadata } from "./image-metadata.mjs";
 const scriptPath = fileURLToPath(import.meta.url);
 const here = path.dirname(scriptPath);
 const root = path.resolve(here, "..");
-const SKIN_VERSION = "1.2.4";
+const SKIN_VERSION = "1.2.5";
 const MAX_ART_BYTES = 16 * 1024 * 1024;
 const STRONG_THEME_AUDIT_MS = 30000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
@@ -16,7 +17,11 @@ const OPERATION_UI_HOST_ID = "chatgpt-dream-skin-operation";
 const OPERATION_UI_REGISTRY_KEY = "__CHATGPT_DREAM_SKIN_OPERATION_UI__";
 const OPERATION_KINDS = new Set(["apply", "pause", "switch"]);
 const OPERATION_UI_STATES = new Set(["success", "error", "cancelled"]);
+const diagnosticsEnabled = process.env.DREAM_SKIN_LOGS === "1" || existsSync(
+  path.join(process.env.LOCALAPPDATA || "", "CodexDreamSkin", "enable-logs"),
+);
 function logDiagnostic(event, data = {}) {
+  if (!diagnosticsEnabled) return;
   console.log(`[dream-skin-diag] ${JSON.stringify({
     timestamp: new Date().toISOString(),
     pid: process.pid,

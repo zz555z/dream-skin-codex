@@ -11,6 +11,7 @@ export const api = {
   restore: () => invoke<ActionResult>("restore_dream_skin"),
   switchTheme: (id: string) => invoke<ActionResult>("switch_dream_theme", { id }),
   deleteTheme: (id: string) => invoke<ActionResult>("delete_dream_theme", { id }),
+  setDiagnostics: (enabled: boolean) => invoke<boolean>("set_diagnostics", { enabled }),
   importTheme: (payload: ImportPayload) =>
     invoke<ActionResult>("import_dream_theme", { payload }),
   pickAndImport: (payload: ImportPayload) =>
