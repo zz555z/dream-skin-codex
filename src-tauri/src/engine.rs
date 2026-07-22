@@ -1,9 +1,10 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
@@ -251,6 +252,48 @@ fn sync_engine_files(app: &AppHandle, relative_paths: &[&str]) -> EngineResult<(
     Ok(())
 }
 
+static COMMAND_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct CommandOutputFiles {
+    stdout: PathBuf,
+    stderr: PathBuf,
+}
+
+impl CommandOutputFiles {
+    fn new() -> Self {
+        let sequence = COMMAND_OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let nonce = format!(
+            "dream-skin-command-{}-{}-{}",
+            std::process::id(),
+            now_millis(),
+            sequence
+        );
+        let root = std::env::temp_dir();
+        Self {
+            stdout: root.join(format!("{nonce}.stdout")),
+            stderr: root.join(format!("{nonce}.stderr")),
+        }
+    }
+}
+
+impl Drop for CommandOutputFiles {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.stdout);
+        let _ = fs::remove_file(&self.stderr);
+    }
+}
+
+fn create_private_output_file(path: &Path) -> EngineResult<fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    Ok(options.open(path)?)
+}
+
 fn run_command(program: &str, args: &[&str]) -> EngineResult<(i32, String, String)> {
     let mut cmd = Command::new(program);
     cmd.args(args);
@@ -260,13 +303,42 @@ fn run_command(program: &str, args: &[&str]) -> EngineResult<(i32, String, Strin
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let output = cmd
-        .output()
+    // Pipes stay open when a Windows PowerShell script launches a long-lived
+    // child that inherits its standard handles. Capture into files so waiting
+    // is tied only to the command process, not to background Codex/Node jobs.
+    let output_files = CommandOutputFiles::new();
+    let stdout_file = create_private_output_file(&output_files.stdout)?;
+    let stderr_file = create_private_output_file(&output_files.stderr)?;
+    cmd.stdout(Stdio::from(stdout_file));
+    cmd.stderr(Stdio::from(stderr_file));
+    let status = cmd
+        .status()
         .map_err(|e| EngineError::Message(format!("启动失败 ({program}): {e}")))?;
-    let code = output.status.code().unwrap_or(1);
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let code = status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&fs::read(&output_files.stdout)?).to_string();
+    let stderr = String::from_utf8_lossy(&fs::read(&output_files.stderr)?).to_string();
     Ok((code, stdout, stderr))
+}
+
+#[cfg(all(test, unix))]
+mod command_tests {
+    use super::run_command;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn command_return_does_not_wait_for_background_output_handles() {
+        let started = Instant::now();
+        let (code, stdout, stderr) = run_command(
+            "/bin/sh",
+            &["-c", "sleep 2 & printf ready; printf warning >&2"],
+        )
+        .expect("command should complete");
+
+        assert_eq!(code, 0);
+        assert_eq!(stdout, "ready");
+        assert_eq!(stderr, "warning");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
 }
 
 fn humanize_engine_message(message: &str) -> String {
