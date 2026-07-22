@@ -29,6 +29,12 @@ try {
   $VerifyPath = Join-Path $StateRoot 'verify.log'
   $themePaths = Initialize-DreamSkinThemeStore -SkillRoot (Split-Path -Parent $PSScriptRoot) -StateRoot $StateRoot
   $pauseWasSet = Test-DreamSkinPaused -StateRoot $StateRoot
+  Write-DreamSkinDiagnosticEvent -Event 'start-snapshot' -StateRoot $StateRoot -Data @{
+    port = $Port
+    pauseWasSet = $pauseWasSet
+    restartExisting = [bool]$RestartExisting
+    promptRestart = [bool]$PromptRestart
+  }
 
   $previousState = Read-DreamSkinState -Path $StatePath
   if (-not $PortExplicit -and $null -ne $previousState -and $previousState.port) {
@@ -232,6 +238,12 @@ try {
     if ($verify.ExitCode -ne 0) { throw "Dream Skin verification failed. See $VerifyPath" }
   } catch {
     $startupError = $_
+    Write-DreamSkinDiagnosticEvent -Event 'start-verification-failed' -StateRoot $StateRoot -Data @{
+      message = "$($startupError.Exception.Message)"
+      pauseWasSet = $pauseWasSet
+      pauseCleared = [bool]$pauseCleared
+      launchedWithCdp = $launchedWithCdp
+    }
     $injectorStopped = $true
     if ($null -ne $state) {
       try {
@@ -282,6 +294,12 @@ try {
     throw $startupError
   }
 
+  Write-DreamSkinDiagnosticEvent -Event 'start-success' -StateRoot $StateRoot -Data @{
+    port = $Port
+    browserId = $cdpIdentity.BrowserId
+    injectorPid = $daemon.Id
+    paused = (Test-DreamSkinPaused -StateRoot $StateRoot)
+  }
   Write-Host "Codex Dream Skin is active on verified loopback port $Port."
 } finally {
   if ($null -ne $operationLock) { Exit-DreamSkinOperationLock -Mutex $operationLock }

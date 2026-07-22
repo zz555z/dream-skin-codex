@@ -423,12 +423,22 @@ function Set-DreamSkinPaused {
   )
   $paths = Get-DreamSkinThemePaths -StateRoot $StateRoot
   Ensure-DreamSkinManagedDirectory -Path $paths.Root -Root $paths.Root
+  $caller = @(Get-PSCallStack | Select-Object -Skip 1 -First 1)[0].Command
+  Write-DreamSkinDiagnosticEvent -Event 'pause-state-change' -StateRoot $StateRoot -Data @{
+    paused = $Paused
+    caller = "$caller"
+    existedBefore = (Test-Path -LiteralPath $paths.PauseFile -PathType Leaf)
+  }
   if ($Paused) {
     Assert-DreamSkinNoReparseComponents -Path $paths.PauseFile
     Write-DreamSkinUtf8FileAtomically -Path $paths.PauseFile -Content "paused`r`n"
   } else {
     if (Test-Path -LiteralPath $paths.PauseFile) { Assert-DreamSkinNoReparseComponents -Path $paths.PauseFile }
     Remove-Item -LiteralPath $paths.PauseFile -Force -ErrorAction SilentlyContinue
+  }
+  Write-DreamSkinDiagnosticEvent -Event 'pause-state-result' -StateRoot $StateRoot -Data @{
+    paused = $Paused
+    existsAfter = (Test-Path -LiteralPath $paths.PauseFile -PathType Leaf)
   }
   return $Paused
 }

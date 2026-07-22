@@ -2,6 +2,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -252,6 +253,23 @@ fn sync_engine_files(app: &AppHandle, relative_paths: &[&str]) -> EngineResult<(
     Ok(())
 }
 
+fn sync_windows_live_runtime(app: &AppHandle, action_scripts: &[&str]) -> EngineResult<()> {
+    let mut files = Vec::with_capacity(action_scripts.len() + 8);
+    files.extend_from_slice(action_scripts);
+    files.extend_from_slice(&[
+        "scripts/start-dream-skin.ps1",
+        "scripts/common-windows.ps1",
+        "scripts/theme-windows.ps1",
+        "scripts/config-utf8.ps1",
+        "scripts/injector.mjs",
+        "scripts/image-metadata.mjs",
+        "assets/renderer-inject.js",
+        "assets/dream-skin.css",
+        "APP_ENGINE_VERSION",
+    ]);
+    sync_engine_files(app, &files)
+}
+
 static COMMAND_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct CommandOutputFiles {
@@ -429,8 +447,85 @@ fn run_windows_script(script_name: &str, args: &[&str]) -> EngineResult<ActionRe
         script_str.as_str(),
     ];
     argv.extend_from_slice(args);
-    let (code, stdout, stderr) = run_command("powershell.exe", &argv)?;
+    let started_at = now_millis();
+    write_windows_action_log(
+        "script-start",
+        script_name,
+        args,
+        None,
+        "",
+        "",
+        0,
+    );
+    let (code, stdout, stderr) = match run_command("powershell.exe", &argv) {
+        Ok(output) => output,
+        Err(error) => {
+            write_windows_action_log(
+                "script-error",
+                script_name,
+                args,
+                None,
+                "",
+                &error.to_string(),
+                now_millis().saturating_sub(started_at),
+            );
+            return Err(error);
+        }
+    };
+    write_windows_action_log(
+        "script-end",
+        script_name,
+        args,
+        Some(code),
+        &stdout,
+        &stderr,
+        now_millis().saturating_sub(started_at),
+    );
     Ok(summarize(code, &stdout, &stderr))
+}
+
+fn write_windows_action_log(
+    event: &str,
+    script_name: &str,
+    args: &[&str],
+    code: Option<i32>,
+    stdout: &str,
+    stderr: &str,
+    duration_ms: u128,
+) {
+    if !cfg!(target_os = "windows") {
+        return;
+    }
+    let Ok(root) = state_root() else { return };
+    if fs::create_dir_all(&root).is_err() {
+        return;
+    }
+    let path = root.join("app-actions.log");
+    if fs::metadata(&path).map(|meta| meta.len() > 2 * 1024 * 1024).unwrap_or(false) {
+        let previous = root.join("app-actions.log.1");
+        let _ = fs::remove_file(&previous);
+        let _ = fs::rename(&path, &previous);
+    }
+    let clip = |value: &str| value.chars().take(4000).collect::<String>();
+    let paused = root.join("paused").is_file();
+    let engine_version = read_text_trimmed(&engine_root().unwrap_or_default().join("APP_ENGINE_VERSION"))
+        .unwrap_or_else(|| "unknown".into());
+    let record = serde_json::json!({
+        "timestampMs": now_millis(),
+        "source": "tauri",
+        "event": event,
+        "script": script_name,
+        "args": args,
+        "code": code,
+        "durationMs": duration_ms,
+        "pausedFile": paused,
+        "engineVersion": engine_version,
+        "stdout": clip(stdout),
+        "stderr": clip(stderr),
+    });
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{record}");
+    }
 }
 
 fn is_codex_running() -> bool {
@@ -970,16 +1065,26 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
     Ok(result)
 }
 
-pub fn apply_skin() -> EngineResult<ActionResult> {
+pub fn apply_skin(app: Option<&AppHandle>) -> EngineResult<ActionResult> {
     if cfg!(target_os = "windows") {
+        if engine_installed() {
+            if let Some(app) = app {
+                sync_windows_live_runtime(app, &[])?;
+            }
+        }
         run_windows_script("start-dream-skin.ps1", &["-PromptRestart"])
     } else {
         run_macos_script("start-dream-skin-macos.sh", &["--prompt-restart"])
     }
 }
 
-pub fn pause_skin() -> EngineResult<ActionResult> {
+pub fn pause_skin(app: Option<&AppHandle>) -> EngineResult<ActionResult> {
     if cfg!(target_os = "windows") {
+        if engine_installed() {
+            if let Some(app) = app {
+                sync_windows_live_runtime(app, &["scripts/app-pause.ps1"])?;
+            }
+        }
         run_windows_script("app-pause.ps1", &[])
     } else {
         run_macos_script("pause-dream-skin-macos.sh", &[])
@@ -1033,15 +1138,7 @@ pub fn switch_theme(app: Option<&AppHandle>, id: &str) -> EngineResult<ActionRes
     assert_safe_theme_id(id)?;
     if cfg!(target_os = "windows") {
         if let Some(app) = app {
-            let _ = sync_engine_files(
-                app,
-                &[
-                    "scripts/app-switch-theme.ps1",
-                    "scripts/theme-windows.ps1",
-                    "scripts/common-windows.ps1",
-                    "scripts/injector.mjs",
-                ],
-            );
+            sync_windows_live_runtime(app, &["scripts/app-switch-theme.ps1"])?;
         }
         run_windows_script("app-switch-theme.ps1", &["-ThemeId", id])
     } else {
@@ -1143,15 +1240,7 @@ pub fn import_image_theme(
         }
     } else if cfg!(target_os = "windows") {
         if let Some(app) = app {
-            let _ = sync_engine_files(
-                app,
-                &[
-                    "scripts/app-import-image.ps1",
-                    "scripts/theme-windows.ps1",
-                    "scripts/common-windows.ps1",
-                    "scripts/injector.mjs",
-                ],
-            );
+            sync_windows_live_runtime(app, &["scripts/app-import-image.ps1"])?;
         }
     }
 

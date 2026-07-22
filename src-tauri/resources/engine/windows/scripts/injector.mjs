@@ -7,7 +7,7 @@ import { readImageMetadata } from "./image-metadata.mjs";
 const scriptPath = fileURLToPath(import.meta.url);
 const here = path.dirname(scriptPath);
 const root = path.resolve(here, "..");
-const SKIN_VERSION = "1.2.3";
+const SKIN_VERSION = "1.2.4";
 const MAX_ART_BYTES = 16 * 1024 * 1024;
 const STRONG_THEME_AUDIT_MS = 30000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
@@ -16,6 +16,14 @@ const OPERATION_UI_HOST_ID = "chatgpt-dream-skin-operation";
 const OPERATION_UI_REGISTRY_KEY = "__CHATGPT_DREAM_SKIN_OPERATION_UI__";
 const OPERATION_KINDS = new Set(["apply", "pause", "switch"]);
 const OPERATION_UI_STATES = new Set(["success", "error", "cancelled"]);
+function logDiagnostic(event, data = {}) {
+  console.log(`[dream-skin-diag] ${JSON.stringify({
+    timestamp: new Date().toISOString(),
+    pid: process.pid,
+    event,
+    ...data,
+  })}`);
+}
 // Shared with macOS: in-renderer progress for pause/apply so both platforms feel the same.
 const OPERATION_UI_CSS = `
   :host {
@@ -1134,6 +1142,13 @@ async function runWatch(options) {
     loadedPayload = await loadPayload(options.themeDir);
     lastStrongThemeAuditAt = Date.now();
     paused = await fileExists(options.pauseFile);
+    logDiagnostic("watcher-start", {
+      port: options.port,
+      browserId: options.browserId,
+      themeId: loadedPayload.theme.id,
+      paused,
+      pauseFile: options.pauseFile,
+    });
     while (!stopping) {
       if (identityAnchor.closed) {
         console.error("[dream-skin] original CDP browser identity closed; watcher is stopping instead of reconnecting");
@@ -1186,6 +1201,19 @@ async function runWatch(options) {
       }
       const pauseChanged = nextPaused !== paused;
       const payloadChanged = !nextPaused && nextPayload !== loadedPayload;
+      if (pauseChanged) {
+        logDiagnostic("pause-observed", {
+          previous: paused,
+          next: nextPaused,
+          pauseFile: options.pauseFile,
+        });
+      }
+      if (payloadChanged) {
+        logDiagnostic("theme-change-observed", {
+          previousThemeId: loadedPayload?.theme?.id ?? null,
+          nextThemeId: nextPayload?.theme?.id ?? null,
+        });
+      }
       loadedPayload = nextPayload;
       paused = nextPaused;
 

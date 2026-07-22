@@ -74,13 +74,19 @@ async fn install_dream_engine(
 }
 
 #[tauri::command]
-async fn apply_dream_skin(state: State<'_, Arc<AppState>>) -> Result<ActionResult, String> {
-    run_blocking(&state, || apply_skin().map_err(|e| e.to_string())).await
+async fn apply_dream_skin(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ActionResult, String> {
+    run_blocking(&state, move || apply_skin(Some(&app)).map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]
-async fn pause_dream_skin(state: State<'_, Arc<AppState>>) -> Result<ActionResult, String> {
-    run_blocking(&state, || pause_skin().map_err(|e| e.to_string())).await
+async fn pause_dream_skin(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ActionResult, String> {
+    run_blocking(&state, move || pause_skin(Some(&app)).map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]

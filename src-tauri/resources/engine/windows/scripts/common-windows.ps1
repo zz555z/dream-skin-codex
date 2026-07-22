@@ -310,6 +310,35 @@ function Invoke-DreamSkinNative {
   }
 }
 
+function Write-DreamSkinDiagnosticEvent {
+  param(
+    [Parameter(Mandatory = $true)][string]$Event,
+    [hashtable]$Data = @{},
+    [string]$StateRoot = (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')
+  )
+  try {
+    New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
+    $path = Join-Path $StateRoot 'app-actions.log'
+    if ((Test-Path -LiteralPath $path -PathType Leaf) -and
+      (Get-Item -LiteralPath $path -Force).Length -gt 2097152) {
+      $previous = "$path.1"
+      Remove-Item -LiteralPath $previous -Force -ErrorAction SilentlyContinue
+      Move-Item -LiteralPath $path -Destination $previous -Force
+    }
+    $record = [ordered]@{
+      timestamp = (Get-Date).ToUniversalTime().ToString('o')
+      source = 'powershell'
+      pid = $PID
+      event = $Event
+    }
+    foreach ($key in $Data.Keys) { $record[$key] = $Data[$key] }
+    $line = ($record | ConvertTo-Json -Compress -Depth 6) + "`r`n"
+    [System.IO.File]::AppendAllText($path, $line, [System.Text.UTF8Encoding]::new($false))
+  } catch {
+    # Diagnostics must never change the action result.
+  }
+}
+
 function Get-DreamSkinNodeRuntime {
   param([int]$MinimumMajor = 22)
 
