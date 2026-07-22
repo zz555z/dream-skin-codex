@@ -30,8 +30,8 @@ if ls "$TMP_HELPERS"/app-*.ps1 >/dev/null 2>&1; then
 fi
 rm -rf "$TMP_HELPERS"
 
-echo "1.2.0-app" > "$DEST/VERSION"
-echo "1.2.0-app" > "$DEST/macos/APP_ENGINE_VERSION"
-echo "1.2.0-app" > "$DEST/windows/APP_ENGINE_VERSION"
+echo "1.2.1-app" > "$DEST/VERSION"
+echo "1.2.1-app" > "$DEST/macos/APP_ENGINE_VERSION"
+echo "1.2.1-app" > "$DEST/windows/APP_ENGINE_VERSION"
 echo "Synced engine resources to $DEST"
 du -sh "$DEST" "$DEST/macos" "$DEST/windows"

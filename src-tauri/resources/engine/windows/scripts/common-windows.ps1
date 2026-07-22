@@ -313,22 +313,88 @@ function Invoke-DreamSkinNative {
 function Get-DreamSkinNodeRuntime {
   param([int]$MinimumMajor = 22)
 
-  $command = Get-Command node.exe -ErrorAction SilentlyContinue
-  if (-not $command) { $command = Get-Command node -ErrorAction SilentlyContinue }
-  if (-not $command) { throw "Node.js $MinimumMajor or newer is required and was not found in PATH." }
-  $versionProbe = Invoke-DreamSkinNative -FilePath $command.Source -ArgumentList @('-p', 'process.versions.node') -DiscardStderr
-  $version = ($versionProbe.Output -join '').Trim()
-  if ($versionProbe.ExitCode -ne 0 -or -not $version) { throw 'The Node.js runtime could not be validated.' }
-  $pathProbe = Invoke-DreamSkinNative -FilePath $command.Source -ArgumentList @('-p', 'process.execPath') -DiscardStderr
-  $runtimePath = ($pathProbe.Output -join '').Trim()
-  if ($pathProbe.ExitCode -ne 0 -or -not $runtimePath -or -not (Test-Path -LiteralPath $runtimePath)) {
-    throw 'The Node.js executable path could not be validated.'
+  $candidatePaths = New-Object System.Collections.Generic.List[string]
+  foreach ($name in @('node.exe', 'node')) {
+    $command = Get-Command $name -ErrorAction SilentlyContinue
+    if ($command -and $command.Source) {
+      [void]$candidatePaths.Add([string]$command.Source)
+    }
   }
-  $major = 0
-  if (-not [int]::TryParse(($version -split '\.')[0], [ref]$major) -or $major -lt $MinimumMajor) {
-    throw "Node.js $MinimumMajor or newer is required; found $version at $runtimePath."
+
+  $searchRoots = @(
+    $env:ProgramFiles,
+    ${env:ProgramFiles(x86)},
+    $env:LOCALAPPDATA,
+    $env:ProgramData
+  ) | Where-Object { $_ }
+  foreach ($root in $searchRoots) {
+    foreach ($rel in @(
+      'nodejs\node.exe',
+      'Programs\nodejs\node.exe',
+      'Programs\node\node.exe',
+      'chocolatey\bin\node.exe'
+    )) {
+      $path = Join-Path $root $rel
+      if (Test-Path -LiteralPath $path) { [void]$candidatePaths.Add($path) }
+    }
   }
-  return [pscustomobject]@{ Path = $runtimePath; Version = $version; Major = $major }
+
+  if ($env:NVM_SYMLINK) {
+    $nvmCurrent = Join-Path $env:NVM_SYMLINK 'node.exe'
+    if (Test-Path -LiteralPath $nvmCurrent) { [void]$candidatePaths.Add($nvmCurrent) }
+  }
+  if ($env:NVM_HOME -and (Test-Path -LiteralPath $env:NVM_HOME)) {
+    Get-ChildItem -LiteralPath $env:NVM_HOME -Directory -ErrorAction SilentlyContinue |
+      Sort-Object Name -Descending |
+      ForEach-Object {
+        $path = Join-Path $_.FullName 'node.exe'
+        if (Test-Path -LiteralPath $path) { [void]$candidatePaths.Add($path) }
+      }
+  }
+
+  foreach ($extra in @(
+    (Join-Path $env:USERPROFILE 'scoop\apps\nodejs\current\node.exe'),
+    (Join-Path $env:USERPROFILE 'scoop\apps\nodejs-lts\current\node.exe'),
+    (Join-Path $env:USERPROFILE '.volta\bin\node.exe')
+  )) {
+    if ($extra -and (Test-Path -LiteralPath $extra)) { [void]$candidatePaths.Add($extra) }
+  }
+
+  $seen = @{}
+  $bestTooOld = $null
+  foreach ($candidate in $candidatePaths) {
+    if (-not $candidate) { continue }
+    $key = $candidate.ToLowerInvariant()
+    if ($seen.ContainsKey($key)) { continue }
+    $seen[$key] = $true
+    if (-not (Test-Path -LiteralPath $candidate)) { continue }
+
+    $versionProbe = Invoke-DreamSkinNative -FilePath $candidate -ArgumentList @('-p', 'process.versions.node') -DiscardStderr
+    $version = ($versionProbe.Output -join '').Trim()
+    if ($versionProbe.ExitCode -ne 0 -or -not $version) { continue }
+
+    $pathProbe = Invoke-DreamSkinNative -FilePath $candidate -ArgumentList @('-p', 'process.execPath') -DiscardStderr
+    $runtimePath = ($pathProbe.Output -join '').Trim()
+    if ($pathProbe.ExitCode -ne 0 -or -not $runtimePath -or -not (Test-Path -LiteralPath $runtimePath)) {
+      continue
+    }
+
+    $major = 0
+    if (-not [int]::TryParse(($version -split '\.')[0], [ref]$major)) { continue }
+    if ($major -lt $MinimumMajor) {
+      if ($null -eq $bestTooOld -or $major -gt [int]$bestTooOld.Major) {
+        $bestTooOld = [pscustomobject]@{ Path = $runtimePath; Version = $version; Major = $major }
+      }
+      continue
+    }
+
+    return [pscustomobject]@{ Path = $runtimePath; Version = $version; Major = $major }
+  }
+
+  if ($null -ne $bestTooOld) {
+    throw ("需要 Node.js {0}+，当前找到的是 {1}（{2}）。请升级到 Node.js {0} 或更高版本后重试：https://nodejs.org" -f $MinimumMajor, $bestTooOld.Version, $bestTooOld.Path)
+  }
+  throw ("未找到 Node.js {0}+。Windows 安装 Dream Skin 需要 Node.js 运行注入器；请安装 LTS {0}+，勾选 Add to PATH，然后重新打开本应用再点安装。下载：https://nodejs.org" -f $MinimumMajor)
 }
 
 function ConvertTo-DreamSkinCodexInstall {

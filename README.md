@@ -34,9 +34,11 @@
 ## 使用（最终用户）
 
 1. 安装并至少启动过一次官方 **Codex / ChatGPT 桌面端**
-2. **完全退出** Codex / ChatGPT
-3. 打开 Dream Skin → 点 **一键安装引擎**
-4. 安装完成后选择主题并 **应用皮肤**
+2. **Windows 额外要求**：安装 [Node.js 22+](https://nodejs.org)（勾选 *Add to PATH*），装好后重新打开本应用
+   macOS 可直接使用系统/应用内运行时，一般无需单独装 Node
+3. **完全退出** Codex / ChatGPT
+4. 打开 Dream Skin → 点 **一键安装引擎**
+5. 安装完成后选择主题并 **应用皮肤**
 
 ### 背景图建议
 

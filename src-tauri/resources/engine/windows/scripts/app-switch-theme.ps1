@@ -15,5 +15,11 @@ if (-not (Test-Path -LiteralPath $themeDir -PathType Container)) { throw "Theme 
 $null = Use-DreamSkinSavedTheme -ThemeDirectory $themeDir -StateRoot $StateRoot
 Write-Host "Switched active theme to $ThemeId"
 if (-not $NoApply) {
-  & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
+  $live = Invoke-DreamSkinLiveApply -StateRoot $StateRoot
+  if ($live.Applied) {
+    Write-Host $live.Message
+  } else {
+    Write-Warning $live.Message
+    & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
+  }
 }

@@ -568,3 +568,39 @@ function Invoke-DreamSkinLiveRemove {
     Message = '已记录暂停，但卸下当前皮肤失败；可重试暂停或完全恢复。'
   }
 }
+
+# Apply the already-written active theme through the existing watcher session.
+# Restarting Codex for every theme switch makes the UI wait for a second startup
+# and a full 30-second verification window even when the live CDP session is healthy.
+function Invoke-DreamSkinLiveApply {
+  param(
+    [string]$StateRoot = (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin'),
+    [int]$TimeoutMs = 8000
+  )
+  if ($TimeoutMs -lt 250 -or $TimeoutMs -gt 120000) {
+    throw "Invalid live-apply timeout: $TimeoutMs"
+  }
+  $session = Get-DreamSkinLiveSessionContext -StateRoot $StateRoot
+  if ($null -eq $session) {
+    return [pscustomobject]@{
+      Attempted = $false
+      Applied = $false
+      Message = '没有可连接的活动会话。'
+    }
+  }
+
+  $argumentList = @(
+    $session.Injector,
+    '--once',
+    '--port', "$($session.Port)",
+    '--browser-id', $session.BrowserId,
+    '--timeout-ms', "$TimeoutMs",
+    '--theme-dir', $session.Paths.Active
+  )
+  $result = Invoke-DreamSkinNative -FilePath $session.NodePath -ArgumentList $argumentList
+  return [pscustomobject]@{
+    Attempted = $true
+    Applied = ($result.ExitCode -eq 0)
+    Message = if ($result.ExitCode -eq 0) { '皮肤已应用' } else { '活动会话应用失败。' }
+  }
+}

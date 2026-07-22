@@ -93,10 +93,11 @@ async fn restore_dream_skin(
 
 #[tauri::command]
 async fn switch_dream_theme(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<ActionResult, String> {
-    run_blocking(&state, move || switch_theme(&id).map_err(|e| e.to_string())).await
+    run_blocking(&state, move || switch_theme(Some(&app), &id).map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]

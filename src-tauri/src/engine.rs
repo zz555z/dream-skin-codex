@@ -269,12 +269,26 @@ fn run_command(program: &str, args: &[&str]) -> EngineResult<(i32, String, Strin
     Ok((code, stdout, stderr))
 }
 
+fn humanize_engine_message(message: &str) -> String {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("node.js")
+        && (lower.contains("not found")
+            || lower.contains("is required")
+            || message.contains("未找到 Node.js")
+            || message.contains("需要 Node.js"))
+    {
+        return "未检测到 Node.js 22+。Windows 安装引擎需要 Node.js 22 或更高版本：到 https://nodejs.org 安装 LTS，勾选 Add to PATH，装好后重新打开本应用再点「一键安装引擎」。".into();
+    }
+    message.trim().to_string()
+}
+
 fn summarize(code: i32, stdout: &str, stderr: &str) -> ActionResult {
     let message = [stdout.trim(), stderr.trim()]
         .into_iter()
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
+    let message = humanize_engine_message(&message);
     let lines = message
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -574,6 +588,8 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     } else if !installed {
         if codex_running {
             "请先完全退出 Codex / ChatGPT 桌面端，再点「一键安装引擎」。".into()
+        } else if platform == "windows" {
+            "Windows 需要先安装 Node.js 22+（勾选 Add to PATH），完全退出 Codex 后，再点「一键安装引擎」。".into()
         } else {
             "首次使用：点「一键安装引擎」。会把引擎装到本机，不改官方安装包。".into()
         }
@@ -941,9 +957,20 @@ pub fn restore_skin(app: &AppHandle) -> EngineResult<ActionResult> {
     }
 }
 
-pub fn switch_theme(id: &str) -> EngineResult<ActionResult> {
+pub fn switch_theme(app: Option<&AppHandle>, id: &str) -> EngineResult<ActionResult> {
     assert_safe_theme_id(id)?;
     if cfg!(target_os = "windows") {
+        if let Some(app) = app {
+            let _ = sync_engine_files(
+                app,
+                &[
+                    "scripts/app-switch-theme.ps1",
+                    "scripts/theme-windows.ps1",
+                    "scripts/common-windows.ps1",
+                    "scripts/injector.mjs",
+                ],
+            );
+        }
         run_windows_script("app-switch-theme.ps1", &["-ThemeId", id])
     } else {
         run_macos_script("switch-theme-macos.sh", &["--id", id])
@@ -1050,6 +1077,7 @@ pub fn import_image_theme(
                     "scripts/app-import-image.ps1",
                     "scripts/theme-windows.ps1",
                     "scripts/common-windows.ps1",
+                    "scripts/injector.mjs",
                 ],
             );
         }

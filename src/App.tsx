@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, fileToBase64 } from "./lib/api";
 import type { StatusSnapshot, ThemeSummary } from "./types";
+import { localizeErrorMessage } from "./lib/localizeError";
 import { BACKGROUND_AI_PROMPT_ZH } from "./lib/backgroundPrompt";
 
 type SelectedImage =
@@ -9,6 +10,24 @@ type SelectedImage =
   | { source: "path"; path: string; name: string; size?: number };
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|heic|tif{1,2})$/i;
+const ACTION_TIMEOUT_MS = 45_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(
+          () => reject(new Error("操作等待超时，后台进程可能仍在收尾，请稍后刷新状态")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
 
 function fileNameFromPath(path: string): string {
   const parts = path.split(/[\\/]/);
@@ -80,7 +99,7 @@ export default function App() {
       showToast("生图提示词已复制", "ok");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      showToast(message || "复制失败", "err");
+      showToast(localizeErrorMessage(message, "复制失败"), "err");
     }
   }, [showToast]);
 
@@ -102,7 +121,7 @@ export default function App() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      showToast(message, "err");
+      showToast(localizeErrorMessage(message), "err");
     }
   }, [busy, showToast]);
 
@@ -129,19 +148,21 @@ export default function App() {
         window.requestAnimationFrame(() => resolve());
       });
       try {
-        const result = await action();
+        const result = await withTimeout(action(), ACTION_TIMEOUT_MS);
         const successText = options?.successText || "操作成功";
         const message = result.ok
           ? successText
-          : result.message || `${label}失败`;
+          : localizeErrorMessage(result.message || `${label}失败`);
         showToast(message, result.ok ? "ok" : "err");
-        await refresh();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        showToast(message, "err");
+        showToast(localizeErrorMessage(message), "err");
       } finally {
         setBusy(false);
         setBusyLabel("处理中…");
+        // Do not keep the blocking overlay up while the theme library reloads
+        // and serializes all preview images over IPC.
+        void refresh();
       }
     },
     [busy, refresh, showToast],
@@ -403,9 +424,20 @@ export default function App() {
                 "会把引擎装到本机用户目录，不修改官方 Codex / ChatGPT 安装包。"}
             </p>
             <ul className="install-steps">
-              <li>1. 先完全退出 Codex / ChatGPT 桌面端</li>
-              <li>2. 点击下方「一键安装引擎」</li>
-              <li>3. 安装完成后在主题库点选主题即可换肤</li>
+              {status?.platform === "windows" ? (
+                <>
+                  <li>1. 安装 Node.js 22+（https://nodejs.org，勾选 Add to PATH）</li>
+                  <li>2. 安装后重新打开本应用，并完全退出 Codex / ChatGPT</li>
+                  <li>3. 点击下方「一键安装引擎」</li>
+                  <li>4. 安装完成后在主题库点选主题即可换肤</li>
+                </>
+              ) : (
+                <>
+                  <li>1. 先完全退出 Codex / ChatGPT 桌面端</li>
+                  <li>2. 点击下方「一键安装引擎」</li>
+                  <li>3. 安装完成后在主题库点选主题即可换肤</li>
+                </>
+              )}
             </ul>
           </div>
           <div className="action-bar">

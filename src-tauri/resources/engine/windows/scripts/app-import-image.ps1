@@ -58,5 +58,11 @@ if ($SaveLibrary) {
   Write-Host ("THEME_ID=" + $saved.Theme.id)
 }
 if (-not $NoApply) {
-  & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
+  $live = Invoke-DreamSkinLiveApply -StateRoot $StateRoot
+  if ($live.Applied) {
+    Write-Host $live.Message
+  } else {
+    Write-Warning $live.Message
+    & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
+  }
 }
