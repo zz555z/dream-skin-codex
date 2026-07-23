@@ -112,6 +112,35 @@ html.codex-dream-skin main.main-surface > header.app-header-tint {
   backdrop-filter: blur(12px) saturate(1.05) !important;
 }
 
+/* Keep Open location / header actions free of opaque white hover plates. */
+html.codex-dream-skin main.main-surface > header.app-header-tint button,
+html.codex-dream-skin main.main-surface > header.app-header-tint a,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"] {
+  color: var(--dream-text) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+html.codex-dream-skin main.main-surface > header.app-header-tint button:hover,
+html.codex-dream-skin main.main-surface > header.app-header-tint button:focus-visible,
+html.codex-dream-skin main.main-surface > header.app-header-tint button[aria-expanded="true"],
+html.codex-dream-skin main.main-surface > header.app-header-tint button[data-state="open"],
+html.codex-dream-skin main.main-surface > header.app-header-tint a:hover,
+html.codex-dream-skin main.main-surface > header.app-header-tint a:focus-visible,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"]:hover,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"]:focus-visible,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"][aria-expanded="true"],
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"][data-state="open"],
+html.codex-dream-skin main.main-surface > header.app-header-tint [class~="bg-token-list-hover-background"] {
+  color: var(--dream-text) !important;
+  background: color-mix(in oklab, var(--dream-surface) 34%, transparent) !important;
+  background-color: color-mix(in oklab, var(--dream-surface) 34%, transparent) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--dream-line) 55%, transparent) !important;
+  backdrop-filter: blur(10px) saturate(1.05);
+}
+
 /* Wide art also reaches the native application menu, which sits outside the
    main surface and needs its own dark-theme legibility layer. */
 html.codex-dream-skin.dream-theme-dark [class~="group/application-menu-top-bar"] {
@@ -467,6 +496,24 @@ html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint 
 
 html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint svg {
   filter: drop-shadow(0 1px 2px color-mix(in oklab, var(--dream-canvas) 72%, transparent));
+}
+
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint button:hover,
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint button:focus-visible,
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint button[aria-expanded="true"],
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint button[data-state="open"],
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint a:hover,
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint a:focus-visible,
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint [role="button"]:hover,
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint [role="button"]:focus-visible,
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint [role="button"][aria-expanded="true"],
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint [role="button"][data-state="open"],
+html.codex-dream-skin.dream-art-wide main.main-surface > header.app-header-tint [class~="bg-token-list-hover-background"] {
+  background: color-mix(in oklab, var(--dream-surface) 28%, transparent) !important;
+  background-color: color-mix(in oklab, var(--dream-surface) 28%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--dream-line) 60%, transparent) !important;
+  backdrop-filter: blur(10px) saturate(1.08);
+  text-shadow: none !important;
 }
 
 html.codex-dream-skin.dream-art-wide main.main-surface [role="main"] {

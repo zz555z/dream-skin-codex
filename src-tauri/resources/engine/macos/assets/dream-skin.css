@@ -436,6 +436,45 @@ html.codex-dream-skin main.main-surface > header.app-header-tint {
   backdrop-filter: blur(14px) saturate(108%) !important;
 }
 
+/* Header utility controls (Open location / actions) keep native geometry but
+   must not flash an opaque white hover plate over the selected artwork. */
+html.codex-dream-skin main.main-surface > header.app-header-tint button,
+html.codex-dream-skin main.main-surface > header.app-header-tint a,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"] {
+  color: var(--ds-text) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+html.codex-dream-skin main.main-surface > header.app-header-tint button:hover,
+html.codex-dream-skin main.main-surface > header.app-header-tint button:focus-visible,
+html.codex-dream-skin main.main-surface > header.app-header-tint button[aria-expanded="true"],
+html.codex-dream-skin main.main-surface > header.app-header-tint button[data-state="open"],
+html.codex-dream-skin main.main-surface > header.app-header-tint a:hover,
+html.codex-dream-skin main.main-surface > header.app-header-tint a:focus-visible,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"]:hover,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"]:focus-visible,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"][aria-expanded="true"],
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"][data-state="open"],
+html.codex-dream-skin main.main-surface > header.app-header-tint [class~="bg-token-list-hover-background"] {
+  color: var(--ds-text) !important;
+  background: rgb(var(--ds-panel-rgb) / .34) !important;
+  background-color: rgb(var(--ds-panel-rgb) / .34) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 0 0 1px rgb(var(--ds-muted-rgb) / .16) !important;
+  backdrop-filter: blur(10px) saturate(108%);
+}
+
+html.codex-dream-skin main.main-surface > header.app-header-tint button:hover svg,
+html.codex-dream-skin main.main-surface > header.app-header-tint button:focus-visible svg,
+html.codex-dream-skin main.main-surface > header.app-header-tint button[aria-expanded="true"] svg,
+html.codex-dream-skin main.main-surface > header.app-header-tint button[data-state="open"] svg,
+html.codex-dream-skin main.main-surface > header.app-header-tint a:hover svg,
+html.codex-dream-skin main.main-surface > header.app-header-tint [role="button"]:hover svg {
+  color: currentColor !important;
+}
+
 #codex-dream-skin-chrome {
   position: fixed;
   z-index: 31;
@@ -822,6 +861,35 @@ html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
   > header.app-header-tint svg {
   color: rgb(var(--ds-muted-rgb) / .96) !important;
   filter: drop-shadow(0 1px 2px rgb(var(--ds-bg-rgb) / .72));
+}
+
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint button:hover,
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint button:focus-visible,
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint button[aria-expanded="true"],
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint button[data-state="open"],
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint a:hover,
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint a:focus-visible,
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint [role="button"]:hover,
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint [role="button"]:focus-visible,
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint [role="button"][aria-expanded="true"],
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint [role="button"][data-state="open"],
+html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface
+  > header.app-header-tint [class~="bg-token-list-hover-background"] {
+  background: rgb(var(--ds-panel-rgb) / .28) !important;
+  background-color: rgb(var(--ds-panel-rgb) / .28) !important;
+  box-shadow: inset 0 0 0 1px rgb(var(--ds-muted-rgb) / .18) !important;
+  backdrop-filter: blur(10px) saturate(110%);
+  text-shadow: none !important;
 }
 
 html.codex-dream-skin[data-dream-art-wide="true"] main.main-surface.dream-skin-home-shell
