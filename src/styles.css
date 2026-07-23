@@ -463,7 +463,11 @@ button:focus-visible {
   display: grid;
   place-items: center;
   gap: 6px;
-  min-height: 112px;
+  box-sizing: border-box;
+  height: 148px;
+  min-height: 148px;
+  max-height: 148px;
+  flex: 0 0 148px;
   padding: 18px;
   border-radius: 18px;
   border: 1.5px dashed rgba(232, 220, 205, 0.18);
@@ -484,7 +488,6 @@ button:focus-visible {
     0 0 0 1px rgba(224, 138, 145, 0.08);
 }
 .dropzone.has-preview {
-  min-height: 180px;
   place-items: end stretch;
   padding: 0;
   border-style: solid;
@@ -506,20 +509,37 @@ button:focus-visible {
   display: grid;
   gap: 6px;
   justify-items: center;
+  align-content: center;
   width: 100%;
-  padding: 18px;
+  height: 100%;
+  min-height: 0;
+  padding: 16px 18px;
+  box-sizing: border-box;
 }
 .dropzone-copy.has-preview {
+  align-content: end;
   background: linear-gradient(180deg, transparent 0%, rgba(8, 10, 16, 0.18) 35%, rgba(8, 10, 16, 0.78) 100%);
-  padding-top: 64px;
+  padding-top: 40px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 .dropzone-copy.has-preview strong,
 .dropzone-copy.has-preview span {
   color: #f4eee4;
 }
-.dropzone strong { font-size: 15px; }
+.dropzone strong {
+  font-size: 15px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dropzone span, .hint { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.dropzone span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .hint { margin: 0; }
 
 .form-grid {
