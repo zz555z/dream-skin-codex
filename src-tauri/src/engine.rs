@@ -4,9 +4,10 @@ use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, thiserror::Error)]
@@ -339,7 +340,35 @@ fn create_private_output_file(path: &Path) -> EngineResult<fs::File> {
     Ok(options.open(path)?)
 }
 
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn kill_process_tree(child: &mut Child) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let pid = child.id();
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn run_command(program: &str, args: &[&str]) -> EngineResult<(i32, String, String)> {
+    run_command_with_timeout(program, args, DEFAULT_COMMAND_TIMEOUT)
+}
+
+fn run_command_with_timeout(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> EngineResult<(i32, String, String)> {
     let mut cmd = Command::new(program);
     cmd.args(args);
     #[cfg(target_os = "windows")]
@@ -356,12 +385,33 @@ fn run_command(program: &str, args: &[&str]) -> EngineResult<(i32, String, Strin
     let stderr_file = create_private_output_file(&output_files.stderr)?;
     cmd.stdout(Stdio::from(stdout_file));
     cmd.stderr(Stdio::from(stderr_file));
-    let status = cmd
-        .status()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| EngineError::Message(format!("启动失败 ({program}): {e}")))?;
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    kill_process_tree(&mut child);
+                    return Err(EngineError::Message(format!(
+                        "命令超时 ({timeout:?}): {program}"
+                    )));
+                }
+                thread::sleep(Duration::from_millis(40));
+            }
+            Err(e) => {
+                kill_process_tree(&mut child);
+                return Err(EngineError::Message(format!("等待命令失败 ({program}): {e}")));
+            }
+        }
+    };
+
     let code = status.code().unwrap_or(1);
-    let stdout = String::from_utf8_lossy(&fs::read(&output_files.stdout)?).to_string();
-    let stderr = String::from_utf8_lossy(&fs::read(&output_files.stderr)?).to_string();
+    let stdout = String::from_utf8_lossy(&fs::read(&output_files.stdout).unwrap_or_default()).to_string();
+    let stderr = String::from_utf8_lossy(&fs::read(&output_files.stderr).unwrap_or_default()).to_string();
     Ok((code, stdout, stderr))
 }
 
@@ -606,18 +656,24 @@ pub fn initialize_windows_diagnostics() {
 
 fn is_codex_running() -> bool {
     if cfg!(target_os = "windows") {
-        run_command("powershell.exe", &[
-            "-NoProfile",
-            "-Command",
-            "if (Get-Process -Name 'ChatGPT','Codex','OpenAI Codex' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
-        ])
+        // Prefer a lightweight process lookup. Avoid WMI/CIM on the startup path.
+        run_command_with_timeout(
+            "powershell.exe",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "if (Get-Process -Name 'ChatGPT','Codex' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
+            ],
+            Duration::from_secs(2),
+        )
         .map(|(code, _, _)| code == 0)
         .unwrap_or(false)
     } else {
-        run_command("/usr/bin/pgrep", &["-x", "ChatGPT"])
+        run_command_with_timeout("/usr/bin/pgrep", &["-x", "ChatGPT"], Duration::from_secs(2))
             .map(|(code, _, _)| code == 0)
             .unwrap_or(false)
-            || run_command("/usr/bin/pgrep", &["-x", "Codex"])
+            || run_command_with_timeout("/usr/bin/pgrep", &["-x", "Codex"], Duration::from_secs(2))
                 .map(|(code, _, _)| code == 0)
                 .unwrap_or(false)
     }
@@ -630,7 +686,12 @@ fn parse_status_json(app: &AppHandle) -> Option<Value> {
             return None;
         }
         let script_str = script.to_string_lossy().to_string();
-        let (code, stdout, _) = run_command("/bin/bash", &[script_str.as_str(), "--json"]).ok()?;
+        let (code, stdout, _) = run_command_with_timeout(
+            "/bin/bash",
+            &[script_str.as_str(), "--json"],
+            STATUS_COMMAND_TIMEOUT,
+        )
+        .ok()?;
         if code != 0 {
             return None;
         }
@@ -651,16 +712,18 @@ fn parse_status_json(app: &AppHandle) -> Option<Value> {
             .chain(installed)
             .find(|candidate| candidate.is_file())?;
         let script_str = script.to_string_lossy().to_string();
-        let (code, stdout, _) = run_command(
+        let (code, stdout, _) = run_command_with_timeout(
             "powershell.exe",
             &[
                 "-NoProfile",
+                "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
                 script_str.as_str(),
                 "-Json",
             ],
+            STATUS_COMMAND_TIMEOUT,
         )
         .ok()?;
         if code != 0 {
@@ -703,12 +766,22 @@ fn content_type_for(path: &Path) -> &'static str {
 }
 
 fn image_to_data_url(path: &Path) -> EngineResult<String> {
+    let meta = fs::metadata(path)?;
+    if meta.len() == 0 {
+        return Err(EngineError::Message("图片为空".into()));
+    }
+    // Keep previews modest so status/theme IPC cannot freeze the UI thread.
+    let max_bytes = if cfg!(target_os = "windows") {
+        4 * 1024 * 1024
+    } else {
+        12 * 1024 * 1024
+    };
+    if meta.len() > max_bytes as u64 {
+        return Err(EngineError::Message("预览图过大".into()));
+    }
     let bytes = fs::read(path)?;
     if bytes.is_empty() {
         return Err(EngineError::Message("图片为空".into()));
-    }
-    if bytes.len() > 12 * 1024 * 1024 {
-        return Err(EngineError::Message("预览图过大".into()));
     }
     Ok(format!(
         "data:{};base64,{}",
@@ -1018,36 +1091,8 @@ pub fn list_themes() -> EngineResult<Vec<ThemeSummary>> {
         let name = read_json_field(&theme, "name").unwrap_or_else(|| id.clone());
         let tagline = read_json_field(&theme, "tagline").unwrap_or_default();
         let appearance = read_json_field(&theme, "appearance").unwrap_or_else(|| "auto".into());
-        let image_name = read_json_field(&theme, "image").unwrap_or_else(|| {
-            if cfg!(target_os = "windows") {
-                "dream-reference.jpg".into()
-            } else {
-                "background.jpg".into()
-            }
-        });
-        let mut image_path = entry
-            .path()
-            .join(Path::new(&image_name).file_name().unwrap_or_default());
-        if !image_path.is_file() {
-            // Windows presets may use dream-reference.jpg or background.jpg
-            for fallback in [
-                "background.jpg",
-                "dream-reference.jpg",
-                "art.jpg",
-                "art.png",
-            ] {
-                let candidate = entry.path().join(fallback);
-                if candidate.is_file() {
-                    image_path = candidate;
-                    break;
-                }
-            }
-        }
-        let preview = if image_path.is_file() {
-            image_to_data_url(&image_path).ok()
-        } else {
-            None
-        };
+        // Keep startup list metadata-only. Large base64 previews freeze the
+        // Windows WebView when many themes are serialized over IPC at once.
         themes.push(ThemeSummary {
             id: id.clone(),
             name,
@@ -1058,7 +1103,7 @@ pub fn list_themes() -> EngineResult<Vec<ThemeSummary>> {
             } else {
                 "custom".into()
             },
-            preview_data_url: preview,
+            preview_data_url: None,
         });
     }
     themes.sort_by(|a, b| match (a.kind.as_str(), b.kind.as_str()) {
@@ -1067,6 +1112,53 @@ pub fn list_themes() -> EngineResult<Vec<ThemeSummary>> {
         _ => a.name.cmp(&b.name),
     });
     Ok(themes)
+}
+
+pub fn theme_preview(id: &str) -> EngineResult<String> {
+    let id = id.trim();
+    if id.is_empty()
+        || id.len() > 80
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(EngineError::Message("主题 ID 无效".into()));
+    }
+    let pack = themes_root()?.join(id);
+    if !pack.is_dir() {
+        return Err(EngineError::Message("主题不存在".into()));
+    }
+    let theme_json = pack.join("theme.json");
+    if !theme_json.is_file() {
+        return Err(EngineError::Message("主题缺少 theme.json".into()));
+    }
+    let theme = read_json_file(&theme_json)?;
+    let image_name = read_json_field(&theme, "image").unwrap_or_else(|| {
+        if cfg!(target_os = "windows") {
+            "dream-reference.jpg".into()
+        } else {
+            "background.jpg".into()
+        }
+    });
+    let mut image_path = pack.join(Path::new(&image_name).file_name().unwrap_or_default());
+    if !image_path.is_file() {
+        for fallback in [
+            "background.jpg",
+            "dream-reference.jpg",
+            "art.jpg",
+            "art.png",
+        ] {
+            let candidate = pack.join(fallback);
+            if candidate.is_file() {
+                image_path = candidate;
+                break;
+            }
+        }
+    }
+    if !image_path.is_file() {
+        return Err(EngineError::Message("主题预览图不存在".into()));
+    }
+    image_to_data_url(&image_path)
 }
 
 pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {

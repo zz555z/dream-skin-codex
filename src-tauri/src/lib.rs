@@ -2,7 +2,7 @@ mod engine;
 
 use engine::{
     apply_skin, decode_base64_payload, delete_theme, get_status, import_image_theme,
-    resolve_theme_image_path,
+    resolve_theme_image_path, theme_preview,
     initialize_windows_diagnostics, install_engine, list_themes, pause_skin, preview_image,
     restore_skin, save_upload_bytes, set_windows_diagnostics, switch_theme, ActionResult,
     ImportOptions, StatusSnapshot, ThemeSummary,
@@ -48,23 +48,38 @@ where
 }
 
 #[tauri::command]
-fn get_app_status(
+async fn get_app_status(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<StatusSnapshot, String> {
-    let mut status = get_status(&app).map_err(|e| e.to_string())?;
-    status.busy = state.busy.load(Ordering::SeqCst);
+    let busy = state.busy.load(Ordering::SeqCst);
+    let result = tauri::async_runtime::spawn_blocking(move || get_status(&app).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("后台任务异常: {e}"))?;
+    let mut status = result?;
+    status.busy = busy;
     Ok(status)
 }
 
 #[tauri::command]
-fn get_themes() -> Result<Vec<ThemeSummary>, String> {
-    list_themes().map_err(|e| e.to_string())
+async fn get_themes() -> Result<Vec<ThemeSummary>, String> {
+    tauri::async_runtime::spawn_blocking(|| list_themes().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("后台任务异常: {e}"))?
 }
 
 #[tauri::command]
-fn preview_local_image(path: String) -> Result<String, String> {
-    preview_image(&path).map_err(|e| e.to_string())
+async fn preview_theme(id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || theme_preview(&id).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("后台任务异常: {e}"))?
+}
+
+#[tauri::command]
+async fn preview_local_image(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || preview_image(&path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("后台任务异常: {e}"))?
 }
 
 #[tauri::command]
@@ -278,6 +293,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_status,
             get_themes,
+            preview_theme,
             preview_local_image,
             install_dream_engine,
             apply_dream_skin,

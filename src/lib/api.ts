@@ -4,6 +4,7 @@ import type { ActionResult, ImportPayload, StatusSnapshot, ThemeSummary } from "
 export const api = {
   getStatus: () => invoke<StatusSnapshot>("get_app_status"),
   getThemes: () => invoke<ThemeSummary[]>("get_themes"),
+  previewTheme: (id: string) => invoke<string>("preview_theme", { id }),
   previewImage: (path: string) => invoke<string>("preview_local_image", { path }),
   install: () => invoke<ActionResult>("install_dream_engine"),
   apply: () => invoke<ActionResult>("apply_dream_skin"),

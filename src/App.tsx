@@ -59,6 +59,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
+const STATUS_TIMEOUT_MS = 4000;
+const THEMES_TIMEOUT_MS = 8000;
+const PREVIEW_TIMEOUT_MS = 6000;
+
+
 function fileNameFromPath(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
@@ -291,6 +296,28 @@ export default function App() {
     }
   }, [showToast]);
 
+  const loadThemePreviews = useCallback(async (items: ThemeSummary[]) => {
+    if (IS_BROWSER_PREVIEW || !items.length) return;
+    const pending = items.filter((theme) => !theme.previewDataUrl).slice(0, 12);
+    for (const theme of pending) {
+      try {
+        const previewDataUrl = await withTimeout(
+          api.previewTheme(theme.id),
+          PREVIEW_TIMEOUT_MS,
+        );
+        setThemes((current) =>
+          current.map((item) =>
+            item.id === theme.id && !item.previewDataUrl
+              ? { ...item, previewDataUrl }
+              : item,
+          ),
+        );
+      } catch {
+        // Preview is best-effort; keep metadata card usable without image.
+      }
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     if (IS_BROWSER_PREVIEW) {
       setStatus(BROWSER_PREVIEW_STATUS);
@@ -298,25 +325,53 @@ export default function App() {
       return;
     }
     try {
-      const nextStatus = await api.getStatus();
+      const nextStatus = await withTimeout(api.getStatus(), STATUS_TIMEOUT_MS);
       setStatus(nextStatus);
       if (nextStatus.installed) {
         try {
-          setThemes(await api.getThemes());
+          const nextThemes = await withTimeout(api.getThemes(), THEMES_TIMEOUT_MS);
+          setThemes(nextThemes);
+          void loadThemePreviews(nextThemes);
         } catch {
           setThemes([]);
         }
       } else {
         setThemes([]);
       }
-      if (!nextStatus.installed) {
-      } else if (!busy) {
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      showToast(localizeErrorMessage(message), "err");
+      // Keep UI responsive even when Windows status PowerShell hangs/times out.
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              busy: false,
+              installHint:
+                current.installHint ||
+                "状态刷新超时。界面仍可操作；可稍后点「刷新」重试。",
+            }
+          : {
+              installed: false,
+              canInstall: true,
+              platform: "windows",
+              engineRoot: "",
+              stateRoot: "",
+              bundledEngineRoot: "",
+              engineVersion: "unknown",
+              session: "off",
+              port: 9335,
+              codexRunning: false,
+              injectorAlive: false,
+              appliedThemeName: "",
+              appliedThemeId: "",
+              activeImageDataUrl: null,
+              busy: false,
+              installHint: "状态刷新超时。界面仍可操作；可稍后点「刷新」重试。",
+            },
+      );
+      showToast(localizeErrorMessage(message, "状态刷新超时"), "err");
     }
-  }, [busy, showToast]);
+  }, [loadThemePreviews, showToast]);
 
   useEffect(() => {
     void refresh();

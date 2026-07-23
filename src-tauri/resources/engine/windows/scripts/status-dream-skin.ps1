@@ -22,6 +22,8 @@ $state = $null
 function Test-DreamSkinStatusInjector {
   param([AllowNull()][object]$State)
 
+  # Keep this path free of Get-CimInstance/WMI. The desktop app polls every few
+  # seconds, and WMI hangs are a common cause of "app freezes on open".
   if ($null -eq $State) { return $false }
   try {
     $processId = 0
@@ -35,9 +37,19 @@ function Test-DreamSkinStatusInjector {
       return $false
     }
 
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
-    if ($null -eq $process -or -not $process.CommandLine) { return $false }
-    $processPath = Get-DreamSkinProcessExecutablePath -ProcessInfo $process
+    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return $false }
+    try {
+      if ("$($process.ProcessName)" -ine 'node') { return $false }
+    } catch {
+      return $false
+    }
+
+    $processPath = $null
+    try { $processPath = "$($process.Path)" } catch { $processPath = $null }
+    if (-not $processPath) {
+      try { $processPath = "$($process.MainModule.FileName)" } catch { $processPath = $null }
+    }
     if (-not $processPath -or [System.IO.Path]::GetFileName("$processPath") -ine 'node.exe') {
       return $false
     }
@@ -45,21 +57,16 @@ function Test-DreamSkinStatusInjector {
       return $false
     }
 
-    $commandLine = "$($process.CommandLine)"
-    if (-not (Test-DreamSkinCommandLineToken -CommandLine $commandLine -Token "$($State.injectorPath)") -or
-      -not (Test-DreamSkinCommandLineToken -CommandLine $commandLine -Token '--watch')) {
+    # Start-time match remains a strong liveness signal without WMI.
+    try {
+      $startedAt = $process.StartTime.ToUniversalTime().ToString('o')
+      if (-not $startedAt -or "$startedAt" -cne "$($State.injectorStartedAt)") {
+        return $false
+      }
+    } catch {
       return $false
     }
-    $portPattern = '(?i)(?:^|\s)--port(?:=|\s+)' + [regex]::Escape("$port") + '(?=$|\s)'
-    if (-not [regex]::IsMatch($commandLine, $portPattern)) { return $false }
-    if ($State.browserId) {
-      $browserPattern = '(?:^|\s)(?i:--browser-id)(?:=|\s+)' +
-        [regex]::Escape("$($State.browserId)") + '(?=$|\s)'
-      if (-not [regex]::IsMatch($commandLine, $browserPattern)) { return $false }
-    }
-
-    $startedAt = Get-DreamSkinProcessStartedAt -ProcessId $processId
-    return [bool]($startedAt -and "$startedAt" -ceq "$($State.injectorStartedAt)")
+    return $true
   } catch {
     return $false
   }
