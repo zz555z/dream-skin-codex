@@ -420,6 +420,9 @@ const THEME_CHOICES = {
   appearance: new Set(["auto", "light", "dark"]),
   safeArea: new Set(["auto", "left", "right", "center", "none"]),
   taskMode: new Set(["auto", "ambient", "banner", "off"]),
+  homeLayout: new Set(["auto", "framed", "immersive"]),
+  surfaceStyle: new Set(["glass", "balanced", "solid"]),
+  cardSize: new Set(["compact", "balanced", "showcase"]),
 };
 
 function normalizedUnit(value, name) {
@@ -472,9 +475,21 @@ async function loadTheme(themeDir) {
   const art = raw.art && typeof raw.art === "object" && !Array.isArray(raw.art) ? raw.art : {};
   const palette = raw.palette && typeof raw.palette === "object" && !Array.isArray(raw.palette)
     ? raw.palette : {};
+  const hero = raw.hero && typeof raw.hero === "object" && !Array.isArray(raw.hero)
+    ? raw.hero : {};
   const theme = {
     id: normalizedText(raw.id, "id", "custom", 80),
     name: normalizedText(raw.name, "name", "Codex Dream Skin", 120),
+    brandSubtitle: normalizedText(raw.brandSubtitle, "brandSubtitle", "CODEX DREAM SKIN", 80),
+    tagline: normalizedText(raw.tagline, "tagline", "Make something wonderful.", 160),
+    projectPrefix: normalizedText(raw.projectPrefix, "projectPrefix", "选择项目 · ", 80),
+    projectLabel: normalizedText(raw.projectLabel, "projectLabel", "◉ 选择项目", 80),
+    statusText: normalizedText(raw.statusText, "statusText", "DREAM SKIN ONLINE", 80),
+    quote: normalizedText(raw.quote, "quote", "MAKE SOMETHING WONDERFUL", 80),
+    hero: {
+      title: normalizedText(hero.title, "hero.title", "我们今天来构建什么？", 60),
+      subtitle: normalizedText(hero.subtitle, "hero.subtitle", "和你的灵感一起，把想法写成代码。", 120),
+    },
     image,
     appearance: normalizedChoice(raw.appearance, "appearance", THEME_CHOICES.appearance, "auto"),
     art: {
@@ -482,6 +497,9 @@ async function loadTheme(themeDir) {
       focusY: normalizedUnit(art.focusY, "art.focusY"),
       safeArea: normalizedChoice(art.safeArea, "art.safeArea", THEME_CHOICES.safeArea, "auto"),
       taskMode: normalizedChoice(art.taskMode, "art.taskMode", THEME_CHOICES.taskMode, "auto"),
+      homeLayout: normalizedChoice(art.homeLayout, "art.homeLayout", THEME_CHOICES.homeLayout, "auto"),
+      surfaceStyle: normalizedChoice(art.surfaceStyle, "art.surfaceStyle", THEME_CHOICES.surfaceStyle, "balanced"),
+      cardSize: normalizedChoice(art.cardSize, "art.cardSize", THEME_CHOICES.cardSize, "balanced"),
     },
     palette: {},
   };
@@ -890,6 +908,9 @@ async function verifySession(session) {
       return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     };
     const home = document.querySelector('.dream-home');
+    const homeSignal = document.querySelector('[data-testid="home-icon"]') ||
+      document.querySelector('[data-feature="game-source"]') ||
+      document.querySelector('.group\\/home-suggestions');
     const suggestions = home?.querySelector('.group\\\\/home-suggestions') ?? null;
     const cards = suggestions ? [...suggestions.querySelectorAll('button')].map(box) : [];
     const result = {
@@ -900,6 +921,7 @@ async function verifySession(session) {
       chromePresent: Boolean(document.getElementById('codex-dream-skin-chrome')),
       chromePointerEvents: getComputedStyle(document.getElementById('codex-dream-skin-chrome') || document.body).pointerEvents,
       homePresent: Boolean(home),
+      homeRoute: Boolean(homeSignal),
       suggestionsPresent: Boolean(suggestions),
       hero: box(home?.firstElementChild?.firstElementChild?.firstElementChild),
       cards,
@@ -915,7 +937,7 @@ async function verifySession(session) {
     // the applied skin. Only use stable skin-owned markers for verification;
     // layout probes remain diagnostic data rather than failure conditions.
     result.pass = result.installed && result.version === result.expectedVersion &&
-      result.stylePresent && result.chromePresent;
+      result.stylePresent && result.chromePresent && (!result.homeRoute || result.homePresent);
     return result;
   })()`);
 }
@@ -1425,6 +1447,10 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
       payloadBytes: Buffer.byteLength(loaded.payload),
       themeId: loaded.theme.id,
       appearance: loaded.theme.appearance,
+      hero: loaded.theme.hero,
+      projectLabel: loaded.theme.projectLabel,
+      statusText: loaded.theme.statusText,
+      accent: loaded.theme.palette?.accent ?? null,
       art: loaded.theme.art,
       artMetadata: loaded.theme.artMetadata ?? null,
     }));

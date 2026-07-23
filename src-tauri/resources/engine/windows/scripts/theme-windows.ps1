@@ -301,7 +301,15 @@ function Set-DreamSkinActiveTheme {
       id = 'custom'
       name = '自定义主题'
       appearance = 'auto'
-      art = [pscustomobject]@{ focusX = $null; focusY = $null; safeArea = 'auto'; taskMode = 'auto' }
+      art = [pscustomobject]@{
+        focusX = $null
+        focusY = $null
+        safeArea = 'auto'
+        taskMode = 'auto'
+        homeLayout = 'auto'
+        surfaceStyle = 'balanced'
+        cardSize = 'balanced'
+      }
       palette = [pscustomobject]@{}
     }
   }
@@ -323,7 +331,15 @@ function Set-DreamSkinActiveTheme {
     if (-not $Theme.appearance) { $Theme | Add-Member -NotePropertyName appearance -NotePropertyValue 'auto' -Force }
     if (-not $Theme.art) {
       $Theme | Add-Member -NotePropertyName art -NotePropertyValue `
-        ([pscustomobject]@{ focusX = $null; focusY = $null; safeArea = 'auto'; taskMode = 'auto' }) -Force
+        ([pscustomobject]@{
+          focusX = $null
+          focusY = $null
+          safeArea = 'auto'
+          taskMode = 'auto'
+          homeLayout = 'auto'
+          surfaceStyle = 'balanced'
+          cardSize = 'balanced'
+        }) -Force
     }
     if (-not $Theme.palette) {
       $Theme | Add-Member -NotePropertyName palette -NotePropertyValue ([pscustomobject]@{}) -Force

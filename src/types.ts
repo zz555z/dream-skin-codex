@@ -35,10 +35,22 @@ export type StatusSnapshot = {
 
 export type ImportPayload = {
   path?: string;
+  /** Re-apply settings using a library theme's saved image */
+  themeId?: string;
   name?: string;
   appearance?: string;
   safeArea?: string;
   taskMode?: string;
+  homeLayout?: string;
+  focusX?: number;
+  focusY?: number;
+  surfaceStyle?: string;
+  cardSize?: string;
+  heroTitle?: string;
+  heroSubtitle?: string;
+  projectLabel?: string;
+  statusText?: string;
+  accentColor?: string;
   saveLibrary?: boolean;
   /** false = only stage into theme library, do not inject */
   applyNow?: boolean;

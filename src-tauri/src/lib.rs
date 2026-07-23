@@ -2,6 +2,7 @@ mod engine;
 
 use engine::{
     apply_skin, decode_base64_payload, delete_theme, get_status, import_image_theme,
+    resolve_theme_image_path,
     initialize_windows_diagnostics, install_engine, list_themes, pause_skin, preview_image,
     restore_skin, save_upload_bytes, set_windows_diagnostics, switch_theme, ActionResult,
     ImportOptions, StatusSnapshot, ThemeSummary,
@@ -139,10 +140,21 @@ fn set_diagnostics(enabled: bool) -> Result<bool, String> {
 #[serde(rename_all = "camelCase")]
 struct ImportPayload {
     path: Option<String>,
+    theme_id: Option<String>,
     name: Option<String>,
     appearance: Option<String>,
     safe_area: Option<String>,
     task_mode: Option<String>,
+    home_layout: Option<String>,
+    focus_x: Option<f64>,
+    focus_y: Option<f64>,
+    surface_style: Option<String>,
+    card_size: Option<String>,
+    hero_title: Option<String>,
+    hero_subtitle: Option<String>,
+    project_label: Option<String>,
+    status_text: Option<String>,
+    accent_color: Option<String>,
     save_library: Option<bool>,
     apply_now: Option<bool>,
     file_base64: Option<String>,
@@ -158,6 +170,8 @@ async fn import_dream_theme(
     run_blocking(&state, move || {
         let path = if let Some(path) = payload.path.filter(|p| !p.is_empty()) {
             path
+        } else if let Some(theme_id) = payload.theme_id.filter(|p| !p.is_empty()) {
+            resolve_theme_image_path(&theme_id).map_err(|e| e.to_string())?
         } else if let (Some(b64), Some(file_name)) = (payload.file_base64, payload.file_name) {
             let bytes = decode_base64_payload(&b64).map_err(|e| e.to_string())?;
             save_upload_bytes(&bytes, &file_name).map_err(|e| e.to_string())?
@@ -172,6 +186,16 @@ async fn import_dream_theme(
                 appearance: payload.appearance,
                 safe_area: payload.safe_area,
                 task_mode: payload.task_mode,
+                home_layout: payload.home_layout,
+                focus_x: payload.focus_x,
+                focus_y: payload.focus_y,
+                surface_style: payload.surface_style,
+                card_size: payload.card_size,
+                hero_title: payload.hero_title,
+                hero_subtitle: payload.hero_subtitle,
+                project_label: payload.project_label,
+                status_text: payload.status_text,
+                accent_color: payload.accent_color,
                 save_library: payload.save_library,
                 apply_now: payload.apply_now,
             },
@@ -221,6 +245,16 @@ async fn pick_and_import_theme(
                 appearance: payload.appearance,
                 safe_area: payload.safe_area,
                 task_mode: payload.task_mode,
+                home_layout: payload.home_layout,
+                focus_x: payload.focus_x,
+                focus_y: payload.focus_y,
+                surface_style: payload.surface_style,
+                card_size: payload.card_size,
+                hero_title: payload.hero_title,
+                hero_subtitle: payload.hero_subtitle,
+                project_label: payload.project_label,
+                status_text: payload.status_text,
+                accent_color: payload.accent_color,
                 save_library: payload.save_library.or(Some(true)),
                 apply_now: payload.apply_now.or(Some(true)),
             },

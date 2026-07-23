@@ -212,6 +212,7 @@ try {
     $state = [pscustomobject]@{
       schemaVersion = 3
       platform = 'windows'
+      session = 'active'
       port = $Port
       injectorPid = $daemon.Id
       injectorStartedAt = $injectorStartedAt

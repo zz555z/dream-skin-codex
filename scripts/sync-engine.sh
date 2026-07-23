@@ -8,6 +8,7 @@ mkdir -p "$DEST/macos" "$DEST/windows"
 TMP_HELPERS="$(mktemp -d)"
 if [ -d "$DEST/windows/scripts" ]; then
   cp -f "$DEST/windows/scripts"/app-*.ps1 "$TMP_HELPERS/" 2>/dev/null || true
+  cp -f "$DEST/windows/scripts/status-dream-skin.ps1" "$TMP_HELPERS/" 2>/dev/null || true
 fi
 
 rsync -a --delete \
@@ -27,6 +28,9 @@ rsync -a --delete \
 mkdir -p "$DEST/windows/scripts"
 if ls "$TMP_HELPERS"/app-*.ps1 >/dev/null 2>&1; then
   cp -f "$TMP_HELPERS"/app-*.ps1 "$DEST/windows/scripts/"
+fi
+if [ -f "$TMP_HELPERS/status-dream-skin.ps1" ]; then
+  cp -f "$TMP_HELPERS/status-dream-skin.ps1" "$DEST/windows/scripts/"
 fi
 rm -rf "$TMP_HELPERS"
 

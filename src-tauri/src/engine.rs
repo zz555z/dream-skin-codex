@@ -78,6 +78,16 @@ pub struct ImportOptions {
     pub appearance: Option<String>,
     pub safe_area: Option<String>,
     pub task_mode: Option<String>,
+    pub home_layout: Option<String>,
+    pub focus_x: Option<f64>,
+    pub focus_y: Option<f64>,
+    pub surface_style: Option<String>,
+    pub card_size: Option<String>,
+    pub hero_title: Option<String>,
+    pub hero_subtitle: Option<String>,
+    pub project_label: Option<String>,
+    pub status_text: Option<String>,
+    pub accent_color: Option<String>,
     pub save_library: Option<bool>,
     /// When false, only save into the theme library (no live inject).
     pub apply_now: Option<bool>,
@@ -262,7 +272,24 @@ fn sync_windows_live_runtime(app: &AppHandle, action_scripts: &[&str]) -> Engine
         "scripts/theme-windows.ps1",
         "scripts/config-utf8.ps1",
         "scripts/injector.mjs",
+        "scripts/status-dream-skin.ps1",
         "scripts/image-metadata.mjs",
+        "assets/renderer-inject.js",
+        "assets/dream-skin.css",
+        "APP_ENGINE_VERSION",
+    ]);
+    sync_engine_files(app, &files)
+}
+
+fn sync_macos_live_runtime(app: &AppHandle, action_scripts: &[&str]) -> EngineResult<()> {
+    let mut files = Vec::with_capacity(action_scripts.len() + 9);
+    files.extend_from_slice(action_scripts);
+    files.extend_from_slice(&[
+        "scripts/start-dream-skin-macos.sh",
+        "scripts/common-macos.sh",
+        "scripts/injector.mjs",
+        "scripts/image-metadata.mjs",
+        "scripts/stage-theme.mjs",
         "assets/renderer-inject.js",
         "assets/dream-skin.css",
         "APP_ENGINE_VERSION",
@@ -582,7 +609,7 @@ fn is_codex_running() -> bool {
         run_command("powershell.exe", &[
             "-NoProfile",
             "-Command",
-            "if (Get-Process -Name 'Codex','OpenAI Codex' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
+            "if (Get-Process -Name 'ChatGPT','Codex','OpenAI Codex' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
         ])
         .map(|(code, _, _)| code == 0)
         .unwrap_or(false)
@@ -596,7 +623,7 @@ fn is_codex_running() -> bool {
     }
 }
 
-fn parse_status_json() -> Option<Value> {
+fn parse_status_json(app: &AppHandle) -> Option<Value> {
     if cfg!(target_os = "macos") {
         let script = script_dir().ok()?.join("status-dream-skin-macos.sh");
         if !script.is_file() {
@@ -604,6 +631,38 @@ fn parse_status_json() -> Option<Value> {
         }
         let script_str = script.to_string_lossy().to_string();
         let (code, stdout, _) = run_command("/bin/bash", &[script_str.as_str(), "--json"]).ok()?;
+        if code != 0 {
+            return None;
+        }
+        serde_json::from_str(stdout.trim()).ok()
+    } else if cfg!(target_os = "windows") {
+        // Read status from the bundled script so an app update fixes status
+        // reporting immediately, even when an older engine is already
+        // installed under LOCALAPPDATA.  Fall back to the installed copy for
+        // development builds whose resource directory is unavailable.
+        let bundled = bundled_engine_dir(app)
+            .ok()
+            .map(|root| root.join("scripts/status-dream-skin.ps1"));
+        let installed = script_dir()
+            .ok()
+            .map(|dir| dir.join("status-dream-skin.ps1"));
+        let script = bundled
+            .into_iter()
+            .chain(installed)
+            .find(|candidate| candidate.is_file())?;
+        let script_str = script.to_string_lossy().to_string();
+        let (code, stdout, _) = run_command(
+            "powershell.exe",
+            &[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                script_str.as_str(),
+                "-Json",
+            ],
+        )
+        .ok()?;
         if code != 0 {
             return None;
         }
@@ -717,8 +776,8 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     } else {
         None
     };
-    let status_json = if installed && cfg!(target_os = "macos") {
-        parse_status_json()
+    let status_json = if installed {
+        parse_status_json(app)
     } else {
         None
     };
@@ -1138,6 +1197,11 @@ pub fn apply_skin(app: Option<&AppHandle>) -> EngineResult<ActionResult> {
         }
         run_windows_script("start-dream-skin.ps1", &["-PromptRestart"])
     } else {
+        if engine_installed() {
+            if let Some(app) = app {
+                sync_macos_live_runtime(app, &[])?;
+            }
+        }
         run_macos_script("start-dream-skin-macos.sh", &["--prompt-restart"])
     }
 }
@@ -1206,6 +1270,9 @@ pub fn switch_theme(app: Option<&AppHandle>, id: &str) -> EngineResult<ActionRes
         }
         run_windows_script("app-switch-theme.ps1", &["-ThemeId", id])
     } else {
+        if let Some(app) = app {
+            sync_macos_live_runtime(app, &["scripts/switch-theme-macos.sh"])?;
+        }
         run_macos_script("switch-theme-macos.sh", &["--id", id])
     }
 }
@@ -1260,6 +1327,50 @@ fn safe_theme_name(name: &str) -> String {
     }
 }
 
+fn safe_theme_text(value: Option<&str>, fallback: &str, max_chars: usize) -> String {
+    let cleaned: String = value
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control() && *c != '\u{2028}' && *c != '\u{2029}')
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(max_chars)
+        .collect();
+    if cleaned.is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn safe_accent_color(value: Option<&str>) -> EngineResult<Option<String>> {
+    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let valid = raw.len() == 7
+        && raw.starts_with('#')
+        && raw[1..].chars().all(|character| character.is_ascii_hexdigit());
+    if !valid {
+        return Err(EngineError::Message(
+            "强调色必须是六位十六进制颜色，例如 #e08a91".into(),
+        ));
+    }
+    Ok(Some(raw.to_ascii_lowercase()))
+}
+
+fn safe_unit_value(value: Option<f64>, label: &str) -> EngineResult<Option<f64>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return Err(EngineError::Message(format!(
+            "{label} 必须是 0 到 1 之间的数字"
+        )));
+    }
+    Ok(Some(value))
+}
+
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1285,6 +1396,63 @@ fn latest_imported_theme_id() -> Option<String> {
     best.map(|(_, id)| id)
 }
 
+
+pub fn resolve_theme_image_path(theme_id: &str) -> EngineResult<String> {
+    assert_safe_theme_id(theme_id)?;
+    let root = themes_root()?;
+    let dir = root.join(theme_id);
+    if !dir.is_dir() {
+        return Err(EngineError::Message("主题不存在，无法重新应用设置".into()));
+    }
+    let theme_json = dir.join("theme.json");
+    let image_name = if theme_json.is_file() {
+        read_json_file(&theme_json)
+            .ok()
+            .and_then(|v| read_json_field(&v, "image"))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut candidates = Vec::new();
+    if !image_name.is_empty() {
+        if let Some(name) = Path::new(&image_name).file_name() {
+            candidates.push(dir.join(name));
+        }
+    }
+    for fallback in [
+        "background.jpg",
+        "dream-reference.jpg",
+        "art.jpg",
+        "art.png",
+        "portal-hero.png",
+    ] {
+        candidates.push(dir.join(fallback));
+    }
+    for path in candidates {
+        if path.is_file() {
+            return Ok(path.display().to_string());
+        }
+    }
+    // last resort: first image-looking file in theme dir
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let ext = path
+                .extension()
+                .and_then(|v| v.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "heic" | "tif" | "tiff") {
+                return Ok(path.display().to_string());
+            }
+        }
+    }
+    Err(EngineError::Message("主题图片缺失，请重新选择图片后应用".into()))
+}
+
 pub fn import_image_theme(
     app: Option<&AppHandle>,
     file_path: &str,
@@ -1292,14 +1460,13 @@ pub fn import_image_theme(
 ) -> EngineResult<ActionResult> {
     if cfg!(target_os = "macos") {
         if let Some(app) = app {
-            let _ = sync_engine_files(
+            sync_macos_live_runtime(
                 app,
                 &[
                     "scripts/load-image-theme-macos.sh",
                     "scripts/write-theme.mjs",
-                    "scripts/common-macos.sh",
                 ],
-            );
+            )?;
         }
     } else if cfg!(target_os = "windows") {
         if let Some(app) = app {
@@ -1334,6 +1501,24 @@ pub fn import_image_theme(
     let appearance = options.appearance.as_deref().unwrap_or("auto");
     let safe_area = options.safe_area.as_deref().unwrap_or("auto");
     let task_mode = options.task_mode.as_deref().unwrap_or("auto");
+    let home_layout = options.home_layout.as_deref().unwrap_or("auto");
+    let surface_style = options.surface_style.as_deref().unwrap_or("balanced");
+    let card_size = options.card_size.as_deref().unwrap_or("balanced");
+    let focus_x = safe_unit_value(options.focus_x, "图片水平位置")?;
+    let focus_y = safe_unit_value(options.focus_y, "图片垂直位置")?;
+    let hero_title = safe_theme_text(
+        options.hero_title.as_deref(),
+        "我们今天来构建什么？",
+        60,
+    );
+    let hero_subtitle = safe_theme_text(
+        options.hero_subtitle.as_deref(),
+        "和你的灵感一起，把想法写成代码。",
+        120,
+    );
+    let project_label = safe_theme_text(options.project_label.as_deref(), "◉ 选择项目", 40);
+    let status_text = safe_theme_text(options.status_text.as_deref(), "DREAM SKIN ONLINE", 40);
+    let accent_color = safe_accent_color(options.accent_color.as_deref())?;
     for (name, value, allowed) in [
         ("appearance", appearance, &["auto", "light", "dark"][..]),
         (
@@ -1345,6 +1530,21 @@ pub fn import_image_theme(
             "taskMode",
             task_mode,
             &["auto", "ambient", "banner", "off"][..],
+        ),
+        (
+            "homeLayout",
+            home_layout,
+            &["auto", "framed", "immersive"][..],
+        ),
+        (
+            "surfaceStyle",
+            surface_style,
+            &["glass", "balanced", "solid"][..],
+        ),
+        (
+            "cardSize",
+            card_size,
+            &["compact", "balanced", "showcase"][..],
         ),
     ] {
         if !allowed.contains(&value) {
@@ -1368,7 +1568,35 @@ pub fn import_image_theme(
             safe_area,
             "-TaskMode",
             task_mode,
+            "-HomeLayout",
+            home_layout,
+            "-SurfaceStyle",
+            surface_style,
+            "-CardSize",
+            card_size,
+            "-HeroTitle",
+            hero_title.as_str(),
+            "-HeroSubtitle",
+            hero_subtitle.as_str(),
+            "-ProjectLabel",
+            project_label.as_str(),
+            "-StatusText",
+            status_text.as_str(),
         ];
+        let focus_x_arg = focus_x.map(|value| format!("{value:.4}"));
+        let focus_y_arg = focus_y.map(|value| format!("{value:.4}"));
+        if let Some(value) = focus_x_arg.as_deref() {
+            args.push("-FocusX");
+            args.push(value);
+        }
+        if let Some(value) = focus_y_arg.as_deref() {
+            args.push("-FocusY");
+            args.push(value);
+        }
+        if let Some(accent) = accent_color.as_deref() {
+            args.push("-Accent");
+            args.push(accent);
+        }
         // Library-only always persists; apply path keeps previous default.
         if save_library || !apply_now {
             args.push("-SaveLibrary");
@@ -1392,7 +1620,33 @@ pub fn import_image_theme(
         safe_area.to_string(),
         "--task-mode".to_string(),
         task_mode.to_string(),
+        "--home-layout".to_string(),
+        home_layout.to_string(),
+        "--surface-style".to_string(),
+        surface_style.to_string(),
+        "--card-size".to_string(),
+        card_size.to_string(),
+        "--hero-title".to_string(),
+        hero_title,
+        "--hero-subtitle".to_string(),
+        hero_subtitle,
+        "--project-label".to_string(),
+        project_label,
+        "--status-text".to_string(),
+        status_text,
     ];
+    if let Some(value) = focus_x {
+        mac_args.push("--focus-x".to_string());
+        mac_args.push(format!("{value:.4}"));
+    }
+    if let Some(value) = focus_y {
+        mac_args.push("--focus-y".to_string());
+        mac_args.push(format!("{value:.4}"));
+    }
+    if let Some(accent) = accent_color {
+        mac_args.push("--accent".to_string());
+        mac_args.push(accent);
+    }
     if !apply_now {
         mac_args.push("--no-apply".to_string());
     }

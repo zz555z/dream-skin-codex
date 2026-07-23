@@ -1,6 +1,6 @@
 [package]
 name = "dream-skin-app"
-version = "1.2.5"
+version = "1.2.6"
 description = "Codex Dream Skin desktop control panel"
 authors = ["local"]
 edition = "2021"

@@ -4,6 +4,10 @@
   "name": "Dream Skin",
   "brandSubtitle": "CODEX DREAM SKIN",
   "tagline": "把喜欢的画面变成可交互的 Codex 工作台。",
+  "hero": {
+    "title": "我们今天来构建什么？",
+    "subtitle": "和初音未来一起，把灵感写成代码。"
+  },
   "projectPrefix": "选择项目 · ",
   "projectLabel": "◉  选择项目",
   "statusText": "THEME ONLINE",

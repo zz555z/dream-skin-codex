@@ -13,8 +13,16 @@ APPLY_NOW="true"
 APPEARANCE="auto"
 SAFE_AREA="auto"
 TASK_MODE="auto"
+HOME_LAYOUT="auto"
+SURFACE_STYLE="balanced"
+CARD_SIZE="balanced"
 FOCUS_X=""
 FOCUS_Y=""
+HERO_TITLE=""
+HERO_SUBTITLE=""
+PROJECT_LABEL=""
+STATUS_TEXT=""
+ACCENT=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -24,8 +32,16 @@ while [ "$#" -gt 0 ]; do
     --appearance) APPEARANCE="${2:-}"; shift 2 ;;
     --safe-area) SAFE_AREA="${2:-}"; shift 2 ;;
     --task-mode) TASK_MODE="${2:-}"; shift 2 ;;
+    --home-layout) HOME_LAYOUT="${2:-}"; shift 2 ;;
+    --surface-style) SURFACE_STYLE="${2:-}"; shift 2 ;;
+    --card-size) CARD_SIZE="${2:-}"; shift 2 ;;
     --focus-x) FOCUS_X="${2:-}"; shift 2 ;;
     --focus-y) FOCUS_Y="${2:-}"; shift 2 ;;
+    --hero-title) HERO_TITLE="${2:-}"; shift 2 ;;
+    --hero-subtitle) HERO_SUBTITLE="${2:-}"; shift 2 ;;
+    --project-label) PROJECT_LABEL="${2:-}"; shift 2 ;;
+    --status-text) STATUS_TEXT="${2:-}"; shift 2 ;;
+    --accent) ACCENT="${2:-}"; shift 2 ;;
     --no-apply) APPLY_NOW="false"; shift ;;
     *) fail "Unknown argument: $1" ;;
   esac
@@ -34,6 +50,9 @@ done
 case "$APPEARANCE" in auto|light|dark) ;; *) fail "Invalid appearance: $APPEARANCE" ;; esac
 case "$SAFE_AREA" in auto|left|right|center|none) ;; *) fail "Invalid safe area: $SAFE_AREA" ;; esac
 case "$TASK_MODE" in auto|ambient|banner|off) ;; *) fail "Invalid task mode: $TASK_MODE" ;; esac
+case "$HOME_LAYOUT" in auto|framed|immersive) ;; *) fail "Invalid home layout: $HOME_LAYOUT" ;; esac
+case "$SURFACE_STYLE" in glass|balanced|solid) ;; *) fail "Invalid surface style: $SURFACE_STYLE" ;; esac
+case "$CARD_SIZE" in compact|balanced|showcase) ;; *) fail "Invalid card size: $CARD_SIZE" ;; esac
 
 ensure_state_root
 IMAGES_DIR="$STATE_ROOT/images"
@@ -116,12 +135,20 @@ theme_args=(
   --output-dir "$work_dir"
   --image "$image_name"
   --name "$THEME_NAME"
-  --tagline "Make something wonderful."
+  --tagline "${HERO_SUBTITLE:-Make something wonderful.}"
   --quote "MAKE SOMETHING WONDERFUL"
   --appearance "$APPEARANCE"
   --safe-area "$SAFE_AREA"
   --task-mode "$TASK_MODE"
+  --home-layout "$HOME_LAYOUT"
+  --surface-style "$SURFACE_STYLE"
+  --card-size "$CARD_SIZE"
 )
+[ -n "$HERO_TITLE" ] && theme_args+=(--hero-title "$HERO_TITLE")
+[ -n "$HERO_SUBTITLE" ] && theme_args+=(--hero-subtitle "$HERO_SUBTITLE")
+[ -n "$PROJECT_LABEL" ] && theme_args+=(--project-label "$PROJECT_LABEL")
+[ -n "$STATUS_TEXT" ] && theme_args+=(--status-text "$STATUS_TEXT")
+[ -n "$ACCENT" ] && theme_args+=(--accent "$ACCENT")
 [ -n "$FOCUS_X" ] && theme_args+=(--focus-x "$FOCUS_X")
 [ -n "$FOCUS_Y" ] && theme_args+=(--focus-y "$FOCUS_Y")
 "$NODE" "$SCRIPT_DIR/write-theme.mjs" "${theme_args[@]}" >/dev/null

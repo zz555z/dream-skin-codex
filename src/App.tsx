@@ -11,6 +11,36 @@ type SelectedImage =
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|heic|tif{1,2})$/i;
 const ACTION_TIMEOUT_MS = 45_000;
+const DEFAULT_HERO_TITLE = "我们今天来构建什么？";
+const DEFAULT_HERO_SUBTITLE = "和你的灵感一起，把想法写成代码。";
+const DEFAULT_PROJECT_LABEL = "◉ 选择项目";
+const DEFAULT_STATUS_TEXT = "DREAM SKIN ONLINE";
+const DEFAULT_ACCENT_COLOR = "#e08a91";
+const DEFAULT_FOCUS_X = 68;
+const DEFAULT_FOCUS_Y = 44;
+/** Recommended advanced defaults — auto home layout + solid cards. */
+const DEFAULT_HOME_LAYOUT = "auto";
+const DEFAULT_SURFACE_STYLE = "solid";
+const DEFAULT_CARD_SIZE = "balanced";
+const IS_BROWSER_PREVIEW = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
+const BROWSER_PREVIEW_STATUS: StatusSnapshot = {
+  installed: true,
+  canInstall: false,
+  platform: "browser-preview",
+  engineRoot: "",
+  stateRoot: "",
+  bundledEngineRoot: "",
+  engineVersion: "preview",
+  session: "active",
+  port: 9341,
+  codexRunning: true,
+  injectorAlive: true,
+  appliedThemeName: "界面预览",
+  appliedThemeId: "",
+  activeImageDataUrl: null,
+  busy: false,
+  installHint: "",
+};
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timeoutId: number | undefined;
@@ -57,6 +87,19 @@ function Chip({ text, kind = "" }: { text: string; kind?: string }) {
   return <span className={`chip ${kind}`.trim()}>{text}</span>;
 }
 
+type ConfirmStep = {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+};
+
+type ConfirmDialogState = {
+  steps: ConfirmStep[];
+  stepIndex: number;
+  danger?: boolean;
+  onConfirm: () => void;
+};
+
 export default function App() {
   const [status, setStatus] = useState<StatusSnapshot | null>(null);
   const [themes, setThemes] = useState<ThemeSummary[]>([]);
@@ -68,11 +111,99 @@ export default function App() {
   const [appearance, setAppearance] = useState("auto");
   const [safeArea, setSafeArea] = useState("auto");
   const [taskMode, setTaskMode] = useState("auto");
+  const [homeLayout, setHomeLayout] = useState(DEFAULT_HOME_LAYOUT);
+  const [surfaceStyle, setSurfaceStyle] = useState(DEFAULT_SURFACE_STYLE);
+  const [cardSize, setCardSize] = useState(DEFAULT_CARD_SIZE);
+  const [useCustomFocus, setUseCustomFocus] = useState(false);
+  const [focusX, setFocusX] = useState(DEFAULT_FOCUS_X);
+  const [focusY, setFocusY] = useState(DEFAULT_FOCUS_Y);
+  const [heroTitle, setHeroTitle] = useState(DEFAULT_HERO_TITLE);
+  const [heroSubtitle, setHeroSubtitle] = useState(DEFAULT_HERO_SUBTITLE);
+  const [projectLabel, setProjectLabel] = useState(DEFAULT_PROJECT_LABEL);
+  const [statusText, setStatusText] = useState(DEFAULT_STATUS_TEXT);
+  const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT_COLOR);
+  const [useCustomAccent, setUseCustomAccent] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const dropzoneRef = useRef<HTMLLabelElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const diagnosticClicksRef = useRef(0);
+
+  useEffect(() => {
+    if (!advancedOpen) return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById("root");
+    const previous = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+      rootOverflow: root?.style.overflow ?? "",
+    };
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    if (root) root.style.overflow = "hidden";
+
+    const scrollableSelector = ".advanced-body";
+    const getScrollableAncestor = (target: EventTarget | null) => {
+      let node = target instanceof Element ? target : null;
+      while (node) {
+        if (node.matches(scrollableSelector)) return node as HTMLElement;
+        node = node.parentElement;
+      }
+      return null;
+    };
+
+    const canScroll = (element: HTMLElement, deltaY: number) => {
+      if (element.scrollHeight <= element.clientHeight + 1) return false;
+      if (deltaY < 0) return element.scrollTop > 0;
+      if (deltaY > 0) {
+        return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+      }
+      return false;
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        // Confirm dialog owns Escape when open.
+        if (document.querySelector(".confirm-modal-overlay")) return;
+        setAdvancedOpen(false);
+      }
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      const scrollable = getScrollableAncestor(event.target);
+      // Only allow native scrolling when the modal body itself can still move.
+      if (scrollable && canScroll(scrollable, event.deltaY)) return;
+      // No scrollbar, at edge, or pointer is outside the body: lock the page.
+      event.preventDefault();
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const scrollable = getScrollableAncestor(event.target);
+      if (scrollable && scrollable.scrollHeight > scrollable.clientHeight + 1) return;
+      event.preventDefault();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    // Capture phase so we stop the background page before it scrolls.
+    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.overscrollBehavior = previous.bodyOverscroll;
+      if (root) root.style.overflow = previous.rootOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("wheel", onWheel, true);
+      window.removeEventListener("touchmove", onTouchMove, true);
+    };
+  }, [advancedOpen]);
 
   const installed = Boolean(status?.installed);
   const canInstall = Boolean(status?.canInstall);
@@ -81,6 +212,49 @@ export default function App() {
     setToast({ message, kind });
     window.setTimeout(() => setToast(null), 1000);
   }, []);
+
+  const closeConfirmDialog = useCallback(() => {
+    setConfirmDialog(null);
+  }, []);
+
+  const openConfirmDialog = useCallback(
+    (options: { steps: ConfirmStep[]; danger?: boolean; onConfirm: () => void }) => {
+      setConfirmDialog({
+        steps: options.steps,
+        stepIndex: 0,
+        danger: options.danger,
+        onConfirm: options.onConfirm,
+      });
+    },
+    [],
+  );
+
+  const advanceConfirmDialog = useCallback(() => {
+    if (!confirmDialog) return;
+    if (confirmDialog.stepIndex < confirmDialog.steps.length - 1) {
+      setConfirmDialog({
+        ...confirmDialog,
+        stepIndex: confirmDialog.stepIndex + 1,
+      });
+      return;
+    }
+    const action = confirmDialog.onConfirm;
+    setConfirmDialog(null);
+    action();
+  }, [confirmDialog]);
+
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setConfirmDialog(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [confirmDialog]);
 
   const revealDiagnostics = useCallback(async () => {
     if (status?.platform !== "windows") return;
@@ -118,6 +292,11 @@ export default function App() {
   }, [showToast]);
 
   const refresh = useCallback(async () => {
+    if (IS_BROWSER_PREVIEW) {
+      setStatus(BROWSER_PREVIEW_STATUS);
+      setThemes([]);
+      return;
+    }
     try {
       const nextStatus = await api.getStatus();
       setStatus(nextStatus);
@@ -189,9 +368,37 @@ export default function App() {
       appearance,
       safeArea,
       taskMode,
+      homeLayout,
+      focusX: useCustomFocus ? focusX / 100 : undefined,
+      focusY: useCustomFocus ? focusY / 100 : undefined,
+      surfaceStyle,
+      cardSize,
+      heroTitle: heroTitle.trim(),
+      heroSubtitle: heroSubtitle.trim(),
+      projectLabel: projectLabel.trim(),
+      statusText: statusText.trim(),
+      accentColor: useCustomAccent ? accentColor : undefined,
       saveLibrary: true,
     }),
-    [appearance, safeArea, selectedImage, taskMode, themeName],
+    [
+      accentColor,
+      appearance,
+      cardSize,
+      focusX,
+      focusY,
+      heroSubtitle,
+      heroTitle,
+      homeLayout,
+      projectLabel,
+      safeArea,
+      selectedImage,
+      statusText,
+      surfaceStyle,
+      taskMode,
+      themeName,
+      useCustomAccent,
+      useCustomFocus,
+    ],
   );
 
   const importSelectedImage = useCallback(
@@ -225,6 +432,7 @@ export default function App() {
     },
     [formFields, selectedImage],
   );
+
 
   const acceptSelectedImage = useCallback(
     (next: SelectedImage | null) => {
@@ -313,8 +521,9 @@ export default function App() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void getCurrentWebview()
-      .onDragDropEvent((event) => {
+    try {
+      const currentWebview = getCurrentWebview();
+      void currentWebview.onDragDropEvent((event) => {
         if (disposed || !installed) return;
         const payload = event.payload;
         if (payload.type === "leave") {
@@ -347,16 +556,19 @@ export default function App() {
           acceptSelectedImage({ source: "path", path, name });
         }
       })
-      .then((fn) => {
-        if (disposed) {
-          fn();
-          return;
-        }
-        unlisten = fn;
-      })
-      .catch(() => {
-        // Browser preview without Tauri APIs: keep HTML5 handlers only.
-      });
+        .then((fn) => {
+          if (disposed) {
+            fn();
+            return;
+          }
+          unlisten = fn;
+        })
+        .catch(() => {
+          // Browser preview without Tauri APIs: keep HTML5 handlers only.
+        });
+    } catch {
+      // Browser preview without Tauri globals: keep HTML5 handlers only.
+    }
 
     return () => {
       disposed = true;
@@ -412,13 +624,49 @@ export default function App() {
           </button>
           <button
             type="button"
+            className="ghost"
+            disabled={busy || !canInstall}
+            title="用应用内置资源重装注入器 / 引擎（请先完全退出 Codex）"
+            onClick={() => {
+              openConfirmDialog({
+                steps: [
+                  {
+                    title: "确认重新安装注入器？",
+                    body: "会用当前应用内置资源覆盖本机引擎，并重新注册注入。请先完全退出 Codex / ChatGPT 桌面端。",
+                    confirmLabel: "确认安装",
+                  },
+                ],
+                onConfirm: () => {
+                  void runAction("重新安装注入器", () => api.install(), {
+                    overlayText: "正在重新安装注入器…",
+                    successText: "注入器已重新安装",
+                  });
+                },
+              });
+            }}
+          >
+            重新安装注入器
+          </button>
+          <button
+            type="button"
             className="danger"
             disabled={busy || !installed}
             onClick={() => {
-              if (!window.confirm("确认恢复官方外观？会停止注入并尽量还原外观设置。")) return;
-              void runAction("恢复官方外观", () => api.restore(), {
-                overlayText: "正在恢复官方外观…",
-                successText: "已恢复官方外观",
+              openConfirmDialog({
+                danger: true,
+                steps: [
+                  {
+                    title: "确认恢复官方外观？",
+                    body: "会停止 Dream Skin 注入，并尽量还原 Codex 官方外观设置。恢复后当前皮肤将立即失效，需重新应用主题才能换肤。",
+                    confirmLabel: "确认恢复",
+                  },
+                ],
+                onConfirm: () => {
+                  void runAction("恢复官方外观", () => api.restore(), {
+                    overlayText: "正在恢复官方外观…",
+                    successText: "已恢复官方外观",
+                  });
+                },
               });
             }}
           >
@@ -515,7 +763,15 @@ export default function App() {
                   text={status?.codexRunning ? "桌面端在线" : "桌面端离线"}
                   kind={status?.codexRunning ? "ok" : ""}
                 />
-                <Chip text={status?.platform === "windows" ? "Windows" : "macOS"} />
+                <Chip
+                  text={
+                    status?.platform === "windows"
+                      ? "Windows"
+                      : status?.platform === "macos"
+                        ? "macOS"
+                        : "浏览器预览"
+                  }
+                />
               </div>
             </div>
           </div>
@@ -656,6 +912,26 @@ export default function App() {
             </label>
           </div>
 
+          <div className="advanced-settings">
+            <button
+              type="button"
+              className="advanced-toggle"
+              aria-haspopup="dialog"
+              aria-expanded={advancedOpen}
+              aria-controls="advanced-settings-dialog"
+              disabled={!installed}
+              onClick={() => setAdvancedOpen(true)}
+            >
+              <span>
+                <strong>更多设置</strong>
+                <small>构图 / 卡片 / 主体位置 / 首页文案 / 强调色（点开后可滚动查看全部）</small>
+              </span>
+              <span className="advanced-toggle-icon" aria-hidden>
+                ↗
+              </span>
+            </button>
+          </div>
+
           <div className="action-bar">
             <button
               type="button"
@@ -747,17 +1023,26 @@ export default function App() {
                         title="删除主题"
                         aria-label={`删除主题 ${theme.name}`}
                         onClick={() => {
-                          if (!window.confirm(`确定删除主题「${theme.name}」？此操作不可撤销。`)) {
-                            return;
-                          }
-                          void runAction(
-                            "删除主题",
-                            () => api.deleteTheme(theme.id),
-                            {
-                              overlayText: `正在删除：${theme.name}`,
-                              successText: `已删除：${theme.name}`,
+                          openConfirmDialog({
+                            danger: true,
+                            steps: [
+                              {
+                                title: "删除主题？",
+                                body: `确定删除主题「${theme.name}」？此操作不可撤销。`,
+                                confirmLabel: "确认删除",
+                              },
+                            ],
+                            onConfirm: () => {
+                              void runAction(
+                                "删除主题",
+                                () => api.deleteTheme(theme.id),
+                                {
+                                  overlayText: `正在删除：${theme.name}`,
+                                  successText: `已删除：${theme.name}`,
+                                },
+                              );
                             },
-                          );
+                          });
                         }}
                       >
                         <svg className="ui-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -780,6 +1065,280 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {advancedOpen ? (
+        <div
+          className="advanced-modal-overlay"
+          role="presentation"
+          onClick={() => setAdvancedOpen(false)}
+        >
+          <div
+            id="advanced-settings-dialog"
+            className="advanced-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="advanced-settings-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="advanced-modal-header">
+              <div>
+                <strong id="advanced-settings-title">更多设置</strong>
+                <small>内容较多时可向下滚动；含构图、卡片、文案与强调色</small>
+              </div>
+              <button
+                type="button"
+                className="advanced-modal-close"
+                aria-label="关闭更多设置"
+                onClick={() => setAdvancedOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="advanced-body">
+                <div className="advanced-intro">
+                  <span className="advanced-kicker">构图与质感</span>
+                  <span>各项均可自行调整；未改时使用推荐默认值。</span>
+                </div>
+                <div className="advanced-grid advanced-layout-grid">
+                  <label>
+                    首页构图
+                    <select
+                      value={homeLayout}
+                      disabled={!installed}
+                      onChange={(event) => setHomeLayout(event.target.value)}
+                    >
+                      <option value="auto">自动判断（推荐）</option>
+                      <option value="framed">画框式</option>
+                      <option value="immersive">沉浸铺满</option>
+                    </select>
+                  </label>
+                  <label>
+                    界面质感
+                    <select
+                      value={surfaceStyle}
+                      disabled={!installed}
+                      onChange={(event) => setSurfaceStyle(event.target.value)}
+                    >
+                      <option value="glass">通透玻璃</option>
+                      <option value="balanced">平衡</option>
+                      <option value="solid">实色清晰（推荐）</option>
+                    </select>
+                  </label>
+                  <label>
+                    建议卡片
+                    <select
+                      value={cardSize}
+                      disabled={!installed}
+                      onChange={(event) => setCardSize(event.target.value)}
+                    >
+                      <option value="compact">紧凑</option>
+                      <option value="balanced">标准（推荐）</option>
+                      <option value="showcase">展示型大卡片</option>
+                    </select>
+                  </label>
+                  <label className="focus-setting-field">
+                    图片主体位置
+                    <div className="focus-setting-control">
+                      <span className="accent-toggle focus-setting-toggle">
+                        <input
+                          type="checkbox"
+                          checked={useCustomFocus}
+                          disabled={!installed}
+                          onChange={(event) => setUseCustomFocus(event.target.checked)}
+                        />
+                        <span>{useCustomFocus ? "手动调节" : "自动识别"}</span>
+                      </span>
+                    </div>
+                  </label>
+                </div>
+                <div className={`focus-sliders${useCustomFocus ? "" : " is-disabled"}`}>
+                  <label className="focus-slider">
+                    <span><span>水平位置</span><code>{focusX}%</code></span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={focusX}
+                      disabled={!installed || !useCustomFocus}
+                      aria-label="图片主体水平位置"
+                      onChange={(event) => setFocusX(Number(event.target.value))}
+                    />
+                    <small><span>左</span><span>右</span></small>
+                  </label>
+                  <label className="focus-slider">
+                    <span><span>垂直位置</span><code>{focusY}%</code></span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={focusY}
+                      disabled={!installed || !useCustomFocus}
+                      aria-label="图片主体垂直位置"
+                      onChange={(event) => setFocusY(Number(event.target.value))}
+                    />
+                    <small><span>上</span><span>下</span></small>
+                  </label>
+                </div>
+                <div className="advanced-intro">
+                  <span className="advanced-kicker">首页内容</span>
+                  <span>这些文案会写入主题；应用主题后，在 Codex 首页即可看到。</span>
+                </div>
+                <div className="advanced-grid">
+                  <label>
+                    主视觉标题
+                    <input
+                      type="text"
+                      maxLength={60}
+                      placeholder={DEFAULT_HERO_TITLE}
+                      value={heroTitle}
+                      disabled={!installed}
+                      onChange={(event) => setHeroTitle(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    主视觉副标题
+                    <input
+                      type="text"
+                      maxLength={120}
+                      placeholder={DEFAULT_HERO_SUBTITLE}
+                      value={heroSubtitle}
+                      disabled={!installed}
+                      onChange={(event) => setHeroSubtitle(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    项目入口文案
+                    <input
+                      type="text"
+                      maxLength={40}
+                      placeholder={DEFAULT_PROJECT_LABEL}
+                      value={projectLabel}
+                      disabled={!installed}
+                      onChange={(event) => setProjectLabel(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    状态短句
+                    <input
+                      type="text"
+                      maxLength={40}
+                      placeholder={DEFAULT_STATUS_TEXT}
+                      value={statusText}
+                      disabled={!installed}
+                      onChange={(event) => setStatusText(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="advanced-footer">
+                  <div className="accent-setting">
+                    <span>强调色</span>
+                    <span className="accent-control">
+                      <label className="accent-toggle">
+                        <input
+                          type="checkbox"
+                          checked={useCustomAccent}
+                          disabled={!installed}
+                          onChange={(event) => setUseCustomAccent(event.target.checked)}
+                        />
+                        <span>自定义</span>
+                      </label>
+                      <input
+                        className="accent-picker"
+                        type="color"
+                        value={accentColor}
+                        disabled={!installed || !useCustomAccent}
+                        aria-label="选择主题强调色"
+                        onChange={(event) => setAccentColor(event.target.value)}
+                      />
+                      <code>{useCustomAccent ? accentColor.toUpperCase() : "跟随图片"}</code>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="advanced-reset"
+                    disabled={!installed}
+                    onClick={() => {
+                      setAppearance("auto");
+                      setSafeArea("auto");
+                      setTaskMode("auto");
+                      setHeroTitle(DEFAULT_HERO_TITLE);
+                      setHeroSubtitle(DEFAULT_HERO_SUBTITLE);
+                      setProjectLabel(DEFAULT_PROJECT_LABEL);
+                      setStatusText(DEFAULT_STATUS_TEXT);
+                      setAccentColor(DEFAULT_ACCENT_COLOR);
+                      setUseCustomAccent(false);
+                      setHomeLayout(DEFAULT_HOME_LAYOUT);
+                      setSurfaceStyle(DEFAULT_SURFACE_STYLE);
+                      setCardSize(DEFAULT_CARD_SIZE);
+                      setUseCustomFocus(false);
+                      setFocusX(DEFAULT_FOCUS_X);
+                      setFocusY(DEFAULT_FOCUS_Y);
+                    }}
+                  >
+                    恢复默认
+                  </button>
+                </div>
+              </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmDialog ? (
+        <div
+          className="confirm-modal-overlay"
+          role="presentation"
+          onClick={closeConfirmDialog}
+        >
+          <div
+            className={`confirm-modal${confirmDialog.danger ? " is-danger" : ""}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="confirm-modal-header">
+              <div>
+                <p className="confirm-kicker">
+                  {confirmDialog.steps.length > 1
+                    ? `确认 ${confirmDialog.stepIndex + 1}/${confirmDialog.steps.length}`
+                    : "请确认"}
+                </p>
+                <strong id="confirm-dialog-title">
+                  {confirmDialog.steps[confirmDialog.stepIndex]?.title}
+                </strong>
+              </div>
+              <button
+                type="button"
+                className="advanced-modal-close"
+                aria-label="关闭确认"
+                onClick={closeConfirmDialog}
+              >
+                ×
+              </button>
+            </div>
+            <p className="confirm-modal-body">
+              {confirmDialog.steps[confirmDialog.stepIndex]?.body}
+            </p>
+            <div className="confirm-modal-actions">
+              <button type="button" className="soft" onClick={closeConfirmDialog}>
+                取消
+              </button>
+              <button
+                type="button"
+                className={confirmDialog.danger ? "danger" : "primary"}
+                onClick={advanceConfirmDialog}
+              >
+                {confirmDialog.steps[confirmDialog.stepIndex]?.confirmLabel ||
+                  (confirmDialog.stepIndex < confirmDialog.steps.length - 1
+                    ? "继续"
+                    : "确认")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {busy ? (
         <div className="busy-overlay" role="alert" aria-live="assertive">

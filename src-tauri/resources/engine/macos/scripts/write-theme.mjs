@@ -130,9 +130,36 @@ const quote = validateText(
   80,
   "MAKE SOMETHING WONDERFUL",
 );
+const heroTitle = validateText(
+  valueFor("hero-title", "我们今天来构建什么？"),
+  "hero-title",
+  60,
+  "我们今天来构建什么？",
+);
+const heroSubtitle = validateText(
+  valueFor("hero-subtitle", tagline || "和你的灵感一起，把想法写成代码。"),
+  "hero-subtitle",
+  120,
+  tagline || "和你的灵感一起，把想法写成代码。",
+);
+const projectLabel = validateText(
+  valueFor("project-label", "◉ 选择项目"),
+  "project-label",
+  40,
+  "◉ 选择项目",
+);
+const statusText = validateText(
+  valueFor("status-text", "DREAM SKIN ONLINE"),
+  "status-text",
+  40,
+  "DREAM SKIN ONLINE",
+);
 const appearance = validateChoice(valueFor("appearance", "auto"), "appearance", ["auto", "light", "dark"]);
 const safeArea = validateChoice(valueFor("safe-area", "auto"), "safe-area", ["auto", "left", "right", "center", "none"]);
 const taskMode = validateChoice(valueFor("task-mode", "auto"), "task-mode", ["auto", "ambient", "banner", "off"]);
+const homeLayout = validateChoice(valueFor("home-layout", "auto"), "home-layout", ["auto", "framed", "immersive"]);
+const surfaceStyle = validateChoice(valueFor("surface-style", "balanced"), "surface-style", ["glass", "balanced", "solid"]);
+const cardSize = validateChoice(valueFor("card-size", "balanced"), "card-size", ["compact", "balanced", "showcase"]);
 const focusX = hasValue("focus-x") ? validateUnit(valueFor("focus-x"), "focus-x") : null;
 const focusY = hasValue("focus-y") ? validateUnit(valueFor("focus-y"), "focus-y") : null;
 
@@ -152,14 +179,21 @@ const custom = {
   brandSubtitle: "CODEX DREAM SKIN",
   tagline: tagline || "把喜欢的画面变成可交互的 Codex 工作台。",
   projectPrefix: "选择项目 · ",
-  projectLabel: "◉  选择项目",
-  statusText: "DREAM SKIN ONLINE",
+  projectLabel,
+  statusText,
   quote: quote || "MAKE SOMETHING WONDERFUL",
+  hero: {
+    title: heroTitle,
+    subtitle: heroSubtitle,
+  },
   image,
   appearance,
   art: {
     safeArea,
     taskMode,
+    homeLayout,
+    surfaceStyle,
+    cardSize,
   },
 };
 

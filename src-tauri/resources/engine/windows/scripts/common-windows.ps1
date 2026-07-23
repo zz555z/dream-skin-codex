@@ -136,6 +136,7 @@ function Install-DreamSkinRuntimeEngine {
     'scripts\config-utf8.ps1',
     'scripts\image-metadata.mjs',
     'scripts\injector.mjs',
+    'scripts\status-dream-skin.ps1',
     'scripts\install-dream-skin.ps1',
     'scripts\restore-dream-skin.ps1',
     'scripts\start-dream-skin.ps1',

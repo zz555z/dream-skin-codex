@@ -482,6 +482,10 @@ async function loadTheme(themeDir) {
   };
   const rawColors = raw.colors && typeof raw.colors === "object" && !Array.isArray(raw.colors)
     ? raw.colors : null;
+  if (raw.hero !== undefined && (!raw.hero || typeof raw.hero !== "object" || Array.isArray(raw.hero))) {
+    throw new Error(`${configPath} has an invalid hero field`);
+  }
+  const rawHero = raw.hero || {};
   const colorKeys = [
     "background", "panel", "panelAlt", "accent", "accentAlt", "secondary",
     "highlight", "text", "muted", "line",
@@ -496,6 +500,9 @@ async function loadTheme(themeDir) {
     focusY: unit(rawArt.focusY, "art.focusY"),
     safeArea: choice(rawArt.safeArea, "art.safeArea", ["auto", "left", "right", "center", "none"]),
     taskMode: choice(rawArt.taskMode, "art.taskMode", ["auto", "ambient", "banner", "off"]),
+    homeLayout: choice(rawArt.homeLayout, "art.homeLayout", ["auto", "framed", "immersive"]),
+    surfaceStyle: choice(rawArt.surfaceStyle, "art.surfaceStyle", ["glass", "balanced", "solid"]),
+    cardSize: choice(rawArt.cardSize, "art.cardSize", ["compact", "balanced", "showcase"]),
   };
   const theme = {
     schemaVersion: 1,
@@ -507,6 +514,10 @@ async function loadTheme(themeDir) {
     projectLabel: text(raw.projectLabel, "◉  选择项目", 80, "projectLabel"),
     statusText: text(raw.statusText, "DREAM SKIN ONLINE", 80, "statusText"),
     quote: text(raw.quote, "MAKE SOMETHING WONDERFUL", 80, "quote"),
+    hero: {
+      title: text(rawHero.title, "我们今天来构建什么？", 60, "hero.title"),
+      subtitle: text(rawHero.subtitle, "和你的灵感一起，把想法写成代码。", 120, "hero.subtitle"),
+    },
     image: raw.image,
     colorMode: rawColors ? "explicit" : "auto",
     explicitColorKeys: rawColors ? colorKeys.filter((key) => Object.hasOwn(rawColors, key)) : [],
@@ -1800,6 +1811,10 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
         version: SKIN_VERSION,
         themeId: loaded.theme.id,
         themeName: loaded.theme.name,
+        hero: loaded.theme.hero,
+        projectLabel: loaded.theme.projectLabel,
+        statusText: loaded.theme.statusText,
+        accent: loaded.theme.colors?.accent ?? null,
         imageBytes: loaded.imageBytes,
         payloadBytes: Buffer.byteLength(loaded.payload),
         artMetadata: loaded.theme.artMetadata ?? null,
