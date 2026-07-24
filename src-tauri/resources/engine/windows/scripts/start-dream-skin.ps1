@@ -232,11 +232,24 @@ try {
     }
     Write-DreamSkinState -Path $StatePath -State $state
 
-    $verify = Invoke-DreamSkinNative -FilePath $node.Path -ArgumentList @(
-      $Injector, '--verify', '--port', "$Port",
-      '--browser-id', $cdpIdentity.BrowserId, '--timeout-ms', '30000')
-    Write-DreamSkinUtf8FileAtomically -Path $VerifyPath -Content (($verify.Output -join "`r`n") + "`r`n")
-    if ($verify.ExitCode -ne 0) { throw "Dream Skin verification failed. See $VerifyPath" }
+    # Return as soon as the watcher is up. A blocking --verify used to keep the
+    # desktop spinner alive for tens of seconds after the skin already worked;
+    # if the host then timed out it could kill PowerShell mid-flight.
+    Start-Sleep -Milliseconds 400
+    if ($daemon.HasExited) { throw "The injector exited during startup. See $StderrPath" }
+
+    try {
+      $verifyArgs = @(
+        (ConvertTo-DreamSkinProcessArgument -Value $Injector),
+        '--verify', '--port', "$Port",
+        '--browser-id', $cdpIdentity.BrowserId,
+        '--timeout-ms', '8000'
+      )
+      Start-Process -FilePath $node.Path -ArgumentList $verifyArgs -WindowStyle Hidden `
+        -RedirectStandardOutput $VerifyPath -RedirectStandardError "$VerifyPath.err" | Out-Null
+    } catch {
+      Write-Warning "Background Dream Skin verify could not be started: $($_.Exception.Message)"
+    }
   } catch {
     $startupError = $_
     Write-DreamSkinDiagnosticEvent -Event 'start-verification-failed' -StateRoot $StateRoot -Data @{

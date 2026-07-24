@@ -1,8 +1,12 @@
-/** Theme display name helpers. */
+const IMAGE_EXT = /\.(png|jpe?g|webp|heic|tif{1,2})$/i;
 
 export function fileNameFromPath(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+export function isImageFileName(name: string): boolean {
+  return IMAGE_EXT.test(name);
 }
 
 /** Theme display name: strip extension from image file name. */

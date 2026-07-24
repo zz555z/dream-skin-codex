@@ -1,6 +1,6 @@
 {
   "name": "dream-skin-codex",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "private": true,
   "type": "module",
   "description": "Codex Dream Skin desktop control panel",
@@ -12,6 +12,7 @@
     "dev": "vite --host 127.0.0.1 --port 1421",
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
+    "check:helpers": "node scripts/check-helpers.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

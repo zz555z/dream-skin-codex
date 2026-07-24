@@ -876,11 +876,40 @@ function Stop-DreamSkinRecordedInjector {
 
 function Get-DreamSkinCodexProcesses {
   param([Parameter(Mandatory = $true)][object]$Codex)
-  return @(Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe'" -ErrorAction SilentlyContinue |
-    Where-Object {
-      $processPath = Get-DreamSkinProcessExecutablePath -ProcessInfo $_
-      Test-DreamSkinPathEqual -Left $processPath -Right $Codex.Executable
-    })
+  # Prefer Get-Process over WMI/CIM. CIM hangs on some Windows machines and
+  # would freeze the desktop control panel until the host timed out.
+  $matches = @()
+  try {
+    $processes = @(Get-Process -Name 'ChatGPT','Codex' -ErrorAction SilentlyContinue)
+  } catch {
+    $processes = @()
+  }
+  foreach ($process in $processes) {
+    $processPath = $null
+    try { $processPath = "$($process.Path)" } catch { $processPath = $null }
+    if (-not $processPath) {
+      try { $processPath = "$($process.MainModule.FileName)" } catch { $processPath = $null }
+    }
+    if (-not $processPath) { continue }
+    if (Test-DreamSkinPathEqual -Left $processPath -Right $Codex.Executable) {
+      $matches += [pscustomobject]@{
+        ProcessId = [int]$process.Id
+        ExecutablePath = $processPath
+      }
+    }
+  }
+  if ($matches.Count -gt 0) { return $matches }
+
+  # Fallback only when Path is unavailable (some store/UWP hosts hide it).
+  try {
+    return @(Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        $processPath = Get-DreamSkinProcessExecutablePath -ProcessInfo $_
+        Test-DreamSkinPathEqual -Left $processPath -Right $Codex.Executable
+      })
+  } catch {
+    return @()
+  }
 }
 
 function Stop-DreamSkinCodex {
@@ -901,8 +930,19 @@ function Stop-DreamSkinCodex {
     throw 'Codex did not close within 15 seconds. Close it manually or explicitly authorize a forced restart.'
   }
   foreach ($item in $remaining) {
-    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$item.ProcessId)" -ErrorAction SilentlyContinue
-    $currentPath = if ($current) { Get-DreamSkinProcessExecutablePath -ProcessInfo $current } else { $null }
+    $currentPath = $null
+    try {
+      $current = Get-Process -Id ([int]$item.ProcessId) -ErrorAction Stop
+      try { $currentPath = "$($current.Path)" } catch { $currentPath = $null }
+      if (-not $currentPath) {
+        try { $currentPath = "$($current.MainModule.FileName)" } catch { $currentPath = $null }
+      }
+    } catch {
+      $currentPath = $null
+    }
+    if (-not $currentPath -and $item.ExecutablePath) {
+      $currentPath = "$($item.ExecutablePath)"
+    }
     if ($currentPath -and (Test-DreamSkinPathEqual -Left $currentPath -Right $Codex.Executable)) {
       Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue
     }

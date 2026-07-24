@@ -571,6 +571,25 @@
       if (candidate !== home) candidate.classList.remove("dream-skin-home");
     }
     if (home) home.classList.add("dream-skin-home");
+    if (home) {
+      const suggestionGroup = home.querySelector('.group\\/home-suggestions');
+      if (suggestionGroup) {
+        suggestionGroup.classList.add("dream-skin-home-suggestions");
+        const slot = suggestionGroup.parentElement;
+        if (slot) slot.classList.add("dream-skin-home-suggestions-slot");
+      }
+      for (const stale of home.querySelectorAll(".dream-skin-home-suggestions")) {
+        if (!suggestionGroup || stale !== suggestionGroup) {
+          stale.classList.remove("dream-skin-home-suggestions");
+        }
+      }
+      for (const stale of home.querySelectorAll(".dream-skin-home-suggestions-slot")) {
+        if (!stale.querySelector(".dream-skin-home-suggestions, .group\\/home-suggestions")) {
+          stale.classList.remove("dream-skin-home-suggestions-slot");
+        }
+      }
+    }
+
     const homeUtilityBars = new Set(home
       ? home.querySelectorAll('[class*="_homeUtilityBar_"]')
       : []);
@@ -654,6 +673,8 @@
     document.documentElement?.style.removeProperty("--dream-skin-art");
     for (const name of THEME_VARIABLES) document.documentElement?.style.removeProperty(name);
     document.querySelectorAll(".dream-skin-home").forEach((node) => node.classList.remove("dream-skin-home"));
+    document.querySelectorAll(".dream-skin-home-suggestions").forEach((node) => node.classList.remove("dream-skin-home-suggestions"));
+    document.querySelectorAll(".dream-skin-home-suggestions-slot").forEach((node) => node.classList.remove("dream-skin-home-suggestions-slot"));
     document.querySelectorAll(".dream-skin-home-shell").forEach((node) => node.classList.remove("dream-skin-home-shell"));
     document.querySelectorAll(".dream-skin-home-utility").forEach((node) => node.classList.remove("dream-skin-home-utility"));
     document.getElementById(STYLE_ID)?.remove();

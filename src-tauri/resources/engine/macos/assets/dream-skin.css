@@ -275,6 +275,10 @@ html.codex-dream-skin main.main-surface {
   box-shadow: -8px 0 28px rgb(var(--ds-bg-rgb) / .18) !important;
 }
 
+html.codex-dream-skin main.main-surface.dream-skin-home-shell {
+  overflow: visible !important;
+}
+
 html.codex-dream-skin main.main-surface:not(.dream-skin-home-shell)::before {
   content: "";
   position: absolute;
@@ -589,10 +593,12 @@ html.codex-dream-skin .dream-skin-home {
 }
 
 .dream-skin-home > div:first-child > div:first-child {
-  flex: 0 0 440px !important;
-  min-height: 440px !important;
+  /* Hero + four suggestion cards need a taller reserved band. */
+  flex: 0 0 auto !important;
+  min-height: clamp(520px, 58vh, 640px) !important;
   align-items: flex-start !important;
-  padding-bottom: 0 !important;
+  padding-bottom: 18px !important;
+  overflow: visible !important;
 }
 
 .dream-skin-home > div:first-child > div:first-child > div:first-child {
@@ -732,18 +738,43 @@ html.codex-dream-skin:is([data-dream-art-safe="center"], [data-dream-art-safe-ar
   opacity: .86;
 }
 
-.dream-skin-home > div:first-child > div:first-child > div:first-child > div:nth-child(2) {
+.dream-skin-home > div:first-child > div:first-child > div:first-child > div:nth-child(2),
+.dream-skin-home .dream-skin-home-suggestions-slot {
   left: 14px !important;
   right: 14px !important;
   top: 100% !important;
   margin-top: 13px !important;
+  position: absolute !important;
+  z-index: 3 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
 
-.dream-skin-home .group\/home-suggestions { overflow: visible !important; }
+.dream-skin-home .group\/home-suggestions,
+.dream-skin-home .dream-skin-home-suggestions {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
 
-.dream-skin-home .group\/home-suggestions button {
+.dream-skin-home .group\/home-suggestions button,
+.dream-skin-home .dream-skin-home-suggestions button {
   position: relative !important;
   min-height: 118px !important;
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
   padding: 14px 13px 12px !important;
   align-items: stretch !important;
   justify-content: flex-start !important;

@@ -1,92 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, fileToBase64 } from "./lib/api";
-import type { StatusSnapshot, ThemeSummary } from "./types";
 import { localizeErrorMessage } from "./lib/localizeError";
 import { BACKGROUND_AI_PROMPT_ZH } from "./lib/backgroundPrompt";
+import {
+  DEFAULT_HERO_SUBTITLE,
+  DEFAULT_HERO_TITLE,
+  DEFAULT_IMPORT_DRAFT,
+  DEFAULT_PROJECT_LABEL,
+  DEFAULT_STATUS_TEXT,
+  importDraftReducer,
+} from "./lib/importDraft";
+import { fileNameFromPath, isImageFileName, resolveThemeName, themeNameFromImage } from "./lib/themeName";
+import { withTimeout } from "./lib/withTimeout";
+import { useEngineStatus } from "./hooks/useEngineStatus";
 
 type SelectedImage =
   | { source: "file"; file: File; name: string; size: number }
   | { source: "path"; path: string; name: string; size?: number };
 
-const IMAGE_EXT = /\.(png|jpe?g|webp|heic|tif{1,2})$/i;
 const ACTION_TIMEOUT_MS = 120_000;
-const DEFAULT_HERO_TITLE = "我们今天来构建什么？";
-const DEFAULT_HERO_SUBTITLE = "和你的灵感一起，把想法写成代码。";
-const DEFAULT_PROJECT_LABEL = "◉ 选择项目";
-const DEFAULT_STATUS_TEXT = "DREAM SKIN ONLINE";
-const DEFAULT_ACCENT_COLOR = "#e08a91";
-const DEFAULT_FOCUS_X = 68;
-const DEFAULT_FOCUS_Y = 44;
-/** Recommended advanced defaults — auto home layout + solid cards. */
-const DEFAULT_HOME_LAYOUT = "auto";
-const DEFAULT_SURFACE_STYLE = "solid";
-const DEFAULT_CARD_SIZE = "balanced";
-const IS_BROWSER_PREVIEW = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
-const BROWSER_PREVIEW_STATUS: StatusSnapshot = {
-  installed: true,
-  canInstall: false,
-  platform: "browser-preview",
-  engineRoot: "",
-  stateRoot: "",
-  bundledEngineRoot: "",
-  engineVersion: "preview",
-  session: "active",
-  port: 9341,
-  codexRunning: true,
-  injectorAlive: true,
-  appliedThemeName: "界面预览",
-  appliedThemeId: "",
-  activeImageDataUrl: null,
-  busy: false,
-  installHint: "",
-};
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutId: number | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeoutId = window.setTimeout(
-          () => reject(new Error("操作等待超时。若正在首次启用皮肤，后台可能仍在重启 Codex，请稍等后点「刷新状态」；若反复出现请完全退出 Codex 后再试")),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-  }
-}
-
-const STATUS_TIMEOUT_MS = 8000;
-const THEMES_TIMEOUT_MS = 12000;
-const PREVIEW_TIMEOUT_MS = 6000;
-
-
-function fileNameFromPath(path: string): string {
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
-}
-
-function isImageFileName(name: string): boolean {
-  return IMAGE_EXT.test(name);
-}
-
-/** Theme display name: strip extension from image file name. */
-function themeNameFromImage(fileName: string): string {
-  const base = fileNameFromPath(fileName).trim();
-  const stem = base.replace(/\.[^.]+$/, "").trim();
-  return stem || base || "我的主题";
-}
-
-/** Prefer user-entered name; otherwise image file stem. */
-function resolveThemeName(inputName: string, imageFileName?: string | null): string {
-  const typed = inputName.trim();
-  if (typed) return typed;
-  if (imageFileName) return themeNameFromImage(imageFileName);
-  return "我的主题";
-}
 
 function Chip({ text, kind = "" }: { text: string; kind?: string }) {
   return <span className={`chip ${kind}`.trim()}>{text}</span>;
@@ -106,29 +39,30 @@ type ConfirmDialogState = {
 };
 
 export default function App() {
-  const [status, setStatus] = useState<StatusSnapshot | null>(null);
-  const [themes, setThemes] = useState<ThemeSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [busyLabel, setBusyLabel] = useState("处理中…");
   const [toast, setToast] = useState<{ message: string; kind: "ok" | "err" } | null>(null);
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
-  const [themeName, setThemeName] = useState("");
-  const [appearance, setAppearance] = useState("auto");
-  const [safeArea, setSafeArea] = useState("auto");
-  const [taskMode, setTaskMode] = useState("auto");
-  const [homeLayout, setHomeLayout] = useState(DEFAULT_HOME_LAYOUT);
-  const [surfaceStyle, setSurfaceStyle] = useState(DEFAULT_SURFACE_STYLE);
-  const [cardSize, setCardSize] = useState(DEFAULT_CARD_SIZE);
-  const [useCustomFocus, setUseCustomFocus] = useState(false);
-  const [focusX, setFocusX] = useState(DEFAULT_FOCUS_X);
-  const [focusY, setFocusY] = useState(DEFAULT_FOCUS_Y);
-  const [heroTitle, setHeroTitle] = useState(DEFAULT_HERO_TITLE);
-  const [heroSubtitle, setHeroSubtitle] = useState(DEFAULT_HERO_SUBTITLE);
-  const [projectLabel, setProjectLabel] = useState(DEFAULT_PROJECT_LABEL);
-  const [statusText, setStatusText] = useState(DEFAULT_STATUS_TEXT);
-  const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT_COLOR);
-  const [useCustomAccent, setUseCustomAccent] = useState(false);
+  const [draft, dispatchDraft] = useReducer(importDraftReducer, DEFAULT_IMPORT_DRAFT);
+  const {
+    themeName,
+    appearance,
+    safeArea,
+    taskMode,
+    homeLayout,
+    surfaceStyle,
+    cardSize,
+    useCustomFocus,
+    focusX,
+    focusY,
+    heroTitle,
+    heroSubtitle,
+    projectLabel,
+    statusText,
+    accentColor,
+    useCustomAccent,
+  } = draft;
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -136,6 +70,16 @@ export default function App() {
   const dropzoneRef = useRef<HTMLLabelElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const diagnosticClicksRef = useRef(0);
+
+  const showToast = useCallback((message: string, kind: "ok" | "err" = "ok") => {
+    setToast({ message, kind });
+    window.setTimeout(() => setToast(null), kind === "err" ? 4200 : 1800);
+  }, []);
+
+  const { status, themes, refresh, setStatus } = useEngineStatus({
+    busy,
+    showToast,
+  });
 
   useEffect(() => {
     if (!advancedOpen) return;
@@ -218,10 +162,7 @@ export default function App() {
     const installed = Boolean(status?.installed);
   const canInstall = Boolean(status?.canInstall);
 
-  const showToast = useCallback((message: string, kind: "ok" | "err" = "ok") => {
-    setToast({ message, kind });
-    window.setTimeout(() => setToast(null), kind === "err" ? 4200 : 1600);
-  }, []);
+  
 
   const closeConfirmDialog = useCallback(() => {
     setConfirmDialog(null);
@@ -301,146 +242,9 @@ export default function App() {
     }
   }, [showToast]);
 
-  const loadThemePreviews = useCallback(async (items: ThemeSummary[]) => {
-    if (IS_BROWSER_PREVIEW || !items.length) return;
-    const pending = items.filter((theme) => !theme.previewDataUrl).slice(0, 12);
-    for (const theme of pending) {
-      try {
-        const previewDataUrl = await withTimeout(
-          api.previewTheme(theme.id),
-          PREVIEW_TIMEOUT_MS,
-        );
-        setThemes((current) =>
-          current.map((item) =>
-            item.id === theme.id && !item.previewDataUrl
-              ? { ...item, previewDataUrl }
-              : item,
-          ),
-        );
-      } catch {
-        // Preview is best-effort; keep metadata card usable without image.
-      }
-    }
-  }, []);
 
-  const refresh = useCallback(async (options?: { silent?: boolean; forceThemes?: boolean }) => {
-    if (IS_BROWSER_PREVIEW) {
-      setStatus(BROWSER_PREVIEW_STATUS);
-      setThemes([]);
-      return;
-    }
-    const silent = Boolean(options?.silent);
-    try {
-      const nextStatus = await withTimeout(api.getStatus(), STATUS_TIMEOUT_MS);
-      setStatus((current) => {
-        // Keep previously loaded card preview unless the applied theme changed.
-        if (
-          current?.activeImageDataUrl &&
-          current.appliedThemeId &&
-          current.appliedThemeId === nextStatus.appliedThemeId &&
-          !nextStatus.activeImageDataUrl
-        ) {
-          return { ...nextStatus, activeImageDataUrl: current.activeImageDataUrl };
-        }
-        return nextStatus;
-      });
-      if (nextStatus.installed) {
-        try {
-          const nextThemes = await withTimeout(api.getThemes(), THEMES_TIMEOUT_MS);
-          setThemes((current) => {
-            // Preserve already-fetched previews across poll refreshes.
-            const previewById = new Map(
-              current
-                .filter((theme) => theme.previewDataUrl)
-                .map((theme) => [theme.id, theme.previewDataUrl] as const),
-            );
-            return nextThemes.map((theme) => ({
-              ...theme,
-              previewDataUrl: theme.previewDataUrl || previewById.get(theme.id),
-            }));
-          });
-          void loadThemePreviews(nextThemes);
-        } catch {
-          if (!silent || options?.forceThemes) {
-            setThemes((current) => current);
-          }
-        }
-      } else {
-        setThemes([]);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // Keep UI responsive; automatic polls must never spam the full-screen error card.
-      setStatus((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              installHint:
-                current.installHint ||
-                "状态刷新较慢。界面仍可操作；可稍后点「刷新」重试。",
-            }
-          : {
-              installed: false,
-              canInstall: true,
-              platform: "windows",
-              engineRoot: "",
-              stateRoot: "",
-              bundledEngineRoot: "",
-              engineVersion: "unknown",
-              session: "off",
-              port: 9335,
-              codexRunning: false,
-              injectorAlive: false,
-              appliedThemeName: "",
-              appliedThemeId: "",
-              activeImageDataUrl: null,
-              busy: false,
-              installHint: "状态刷新较慢。界面仍可操作；可稍后点「刷新」重试。",
-            },
-      );
-      if (!silent) {
-        showToast(localizeErrorMessage(message, "状态刷新超时"), "err");
-      }
-    }
-  }, [loadThemePreviews, showToast]);
 
-  // Lazily load the applied theme artwork for the left card. Status polling no
-  // longer embeds multi-MB base64 images on every refresh.
-  useEffect(() => {
-    if (IS_BROWSER_PREVIEW) return;
-    const themeId = status?.appliedThemeId?.trim();
-    if (!themeId) return;
-    if (status?.activeImageDataUrl) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const previewDataUrl = await withTimeout(
-          api.previewTheme(themeId),
-          PREVIEW_TIMEOUT_MS,
-        );
-        if (cancelled || !previewDataUrl) return;
-        setStatus((current) => {
-          if (!current || current.appliedThemeId !== themeId) return current;
-          if (current.activeImageDataUrl) return current;
-          return { ...current, activeImageDataUrl: previewDataUrl };
-        });
-      } catch {
-        // Preview is best-effort.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [status?.appliedThemeId, status?.activeImageDataUrl]);
 
-  useEffect(() => {
-    void refresh({ silent: true, forceThemes: true });
-    const timer = window.setInterval(() => {
-      if (!busyRef.current) void refresh({ silent: true });
-    }, 12000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
 
   const runAction = useCallback(
     async (
@@ -465,7 +269,39 @@ export default function App() {
         showToast(message, result.ok ? "ok" : "err");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        showToast(localizeErrorMessage(message), "err");
+        // Windows apply can finish in the background after the host returns
+        // early, or after a slow restart. If the session looks healthy, treat
+        // the action as success instead of scaring the user with a timeout card.
+        let recovered = false;
+        try {
+          const nextStatus = await withTimeout(api.getStatus(), 8000);
+          setStatus((current) => {
+            if (
+              current?.activeImageDataUrl &&
+              current.appliedThemeId &&
+              current.appliedThemeId === nextStatus.appliedThemeId &&
+              !nextStatus.activeImageDataUrl
+            ) {
+              return { ...nextStatus, activeImageDataUrl: current.activeImageDataUrl };
+            }
+            return nextStatus;
+          });
+          if (
+            nextStatus.installed &&
+            (nextStatus.injectorAlive ||
+              nextStatus.session === "active" ||
+              nextStatus.session === "paused" ||
+              Boolean(nextStatus.appliedThemeId))
+          ) {
+            recovered = true;
+            showToast(options?.successText || "操作可能已完成，请确认 Codex 窗口", "ok");
+          }
+        } catch {
+          // fall through to timeout message
+        }
+        if (!recovered) {
+          showToast(localizeErrorMessage(message), "err");
+        }
       } finally {
         setBusy(false);
         setBusyLabel("处理中…");
@@ -473,7 +309,7 @@ export default function App() {
         void refresh({ silent: true, forceThemes: true });
       }
     },
-    [busy, refresh, showToast],
+    [busy, refresh, setStatus, showToast],
   );
 
   const formFields = useMemo(
@@ -541,7 +377,7 @@ export default function App() {
             });
       if (result.ok) {
         setSelectedImage(null);
-        setThemeName("");
+        dispatchDraft({ type: "resetThemeName" });
       }
       return result;
     },
@@ -562,7 +398,7 @@ export default function App() {
       setSelectedImage(next);
       // 主题名为空时，自动填入图片名；用户已填写则不覆盖
       if (!themeName.trim()) {
-        setThemeName(themeNameFromImage(next.name));
+        dispatchDraft({ type: "setThemeName", value: themeNameFromImage(next.name) });
       }
     },
     [showToast, themeName],
@@ -983,7 +819,7 @@ export default function App() {
                 placeholder="例如：午夜书房"
                 value={themeName}
                 disabled={!installed}
-                onChange={(event) => setThemeName(event.target.value)}
+                onChange={(event) => dispatchDraft({ type: "setThemeName", value: event.target.value })}
               />
             </label>
             <label>
@@ -991,7 +827,7 @@ export default function App() {
               <select
                 value={appearance}
                 disabled={!installed}
-                onChange={(event) => setAppearance(event.target.value)}
+                onChange={(event) => dispatchDraft({ type: "patch", patch: { appearance: event.target.value } })}
               >
                 <option value="auto">跟随 Codex / 系统</option>
                 <option value="light">浅色</option>
@@ -1003,7 +839,7 @@ export default function App() {
               <select
                 value={safeArea}
                 disabled={!installed}
-                onChange={(event) => setSafeArea(event.target.value)}
+                onChange={(event) => dispatchDraft({ type: "patch", patch: { safeArea: event.target.value } })}
               >
                 <option value="auto">自动</option>
                 <option value="left">左侧留给内容</option>
@@ -1017,7 +853,7 @@ export default function App() {
               <select
                 value={taskMode}
                 disabled={!installed}
-                onChange={(event) => setTaskMode(event.target.value)}
+                onChange={(event) => dispatchDraft({ type: "patch", patch: { taskMode: event.target.value } })}
               >
                 <option value="auto">自动</option>
                 <option value="ambient">环境氛围</option>
@@ -1220,7 +1056,7 @@ export default function App() {
                     <select
                       value={homeLayout}
                       disabled={!installed}
-                      onChange={(event) => setHomeLayout(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { homeLayout: event.target.value } })}
                     >
                       <option value="auto">自动判断（推荐）</option>
                       <option value="framed">画框式</option>
@@ -1232,7 +1068,7 @@ export default function App() {
                     <select
                       value={surfaceStyle}
                       disabled={!installed}
-                      onChange={(event) => setSurfaceStyle(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { surfaceStyle: event.target.value } })}
                     >
                       <option value="glass">通透玻璃</option>
                       <option value="balanced">平衡</option>
@@ -1244,7 +1080,7 @@ export default function App() {
                     <select
                       value={cardSize}
                       disabled={!installed}
-                      onChange={(event) => setCardSize(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { cardSize: event.target.value } })}
                     >
                       <option value="compact">紧凑</option>
                       <option value="balanced">标准（推荐）</option>
@@ -1259,7 +1095,7 @@ export default function App() {
                           type="checkbox"
                           checked={useCustomFocus}
                           disabled={!installed}
-                          onChange={(event) => setUseCustomFocus(event.target.checked)}
+                          onChange={(event) => dispatchDraft({ type: "patch", patch: { useCustomFocus: event.target.checked } })}
                         />
                         <span>{useCustomFocus ? "手动调节" : "自动识别"}</span>
                       </span>
@@ -1277,7 +1113,7 @@ export default function App() {
                       value={focusX}
                       disabled={!installed || !useCustomFocus}
                       aria-label="图片主体水平位置"
-                      onChange={(event) => setFocusX(Number(event.target.value))}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { focusX: Number(event.target.value) } })}
                     />
                     <small><span>左</span><span>右</span></small>
                   </label>
@@ -1291,7 +1127,7 @@ export default function App() {
                       value={focusY}
                       disabled={!installed || !useCustomFocus}
                       aria-label="图片主体垂直位置"
-                      onChange={(event) => setFocusY(Number(event.target.value))}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { focusY: Number(event.target.value) } })}
                     />
                     <small><span>上</span><span>下</span></small>
                   </label>
@@ -1309,7 +1145,7 @@ export default function App() {
                       placeholder={DEFAULT_HERO_TITLE}
                       value={heroTitle}
                       disabled={!installed}
-                      onChange={(event) => setHeroTitle(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { heroTitle: event.target.value } })}
                     />
                   </label>
                   <label>
@@ -1320,7 +1156,7 @@ export default function App() {
                       placeholder={DEFAULT_HERO_SUBTITLE}
                       value={heroSubtitle}
                       disabled={!installed}
-                      onChange={(event) => setHeroSubtitle(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { heroSubtitle: event.target.value } })}
                     />
                   </label>
                   <label>
@@ -1331,7 +1167,7 @@ export default function App() {
                       placeholder={DEFAULT_PROJECT_LABEL}
                       value={projectLabel}
                       disabled={!installed}
-                      onChange={(event) => setProjectLabel(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { projectLabel: event.target.value } })}
                     />
                   </label>
                   <label>
@@ -1342,7 +1178,7 @@ export default function App() {
                       placeholder={DEFAULT_STATUS_TEXT}
                       value={statusText}
                       disabled={!installed}
-                      onChange={(event) => setStatusText(event.target.value)}
+                      onChange={(event) => dispatchDraft({ type: "patch", patch: { statusText: event.target.value } })}
                     />
                   </label>
                 </div>
@@ -1355,7 +1191,7 @@ export default function App() {
                           type="checkbox"
                           checked={useCustomAccent}
                           disabled={!installed}
-                          onChange={(event) => setUseCustomAccent(event.target.checked)}
+                          onChange={(event) => dispatchDraft({ type: "patch", patch: { useCustomAccent: event.target.checked } })}
                         />
                         <span>自定义</span>
                       </label>
@@ -1365,7 +1201,7 @@ export default function App() {
                         value={accentColor}
                         disabled={!installed || !useCustomAccent}
                         aria-label="选择主题强调色"
-                        onChange={(event) => setAccentColor(event.target.value)}
+                        onChange={(event) => dispatchDraft({ type: "patch", patch: { accentColor: event.target.value } })}
                       />
                       <code>{useCustomAccent ? accentColor.toUpperCase() : "跟随图片"}</code>
                     </span>
@@ -1375,21 +1211,13 @@ export default function App() {
                     className="advanced-reset"
                     disabled={!installed}
                     onClick={() => {
-                      setAppearance("auto");
-                      setSafeArea("auto");
-                      setTaskMode("auto");
-                      setHeroTitle(DEFAULT_HERO_TITLE);
-                      setHeroSubtitle(DEFAULT_HERO_SUBTITLE);
-                      setProjectLabel(DEFAULT_PROJECT_LABEL);
-                      setStatusText(DEFAULT_STATUS_TEXT);
-                      setAccentColor(DEFAULT_ACCENT_COLOR);
-                      setUseCustomAccent(false);
-                      setHomeLayout(DEFAULT_HOME_LAYOUT);
-                      setSurfaceStyle(DEFAULT_SURFACE_STYLE);
-                      setCardSize(DEFAULT_CARD_SIZE);
-                      setUseCustomFocus(false);
-                      setFocusX(DEFAULT_FOCUS_X);
-                      setFocusY(DEFAULT_FOCUS_Y);
+                      dispatchDraft({
+                        type: "patch",
+                        patch: {
+                          ...DEFAULT_IMPORT_DRAFT,
+                          themeName: themeName,
+                        },
+                      });
                     }}
                   >
                     恢复默认

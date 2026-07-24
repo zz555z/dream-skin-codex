@@ -235,10 +235,12 @@ html.codex-dream-skin .dream-home {
 }
 
 .dream-home > div:first-child > div:first-child {
-  flex: 0 0 clamp(390px, 42cqw, 510px) !important;
-  min-height: 390px !important;
+  /* Keep room for hero copy + four home suggestion cards. */
+  flex: 0 0 auto !important;
+  min-height: clamp(500px, 56vh, 620px) !important;
   align-items: flex-start !important;
-  padding-bottom: 0 !important;
+  padding-bottom: 18px !important;
+  overflow: visible !important;
 }
 
 .dream-home > div:first-child > div:first-child > div:first-child {
@@ -349,18 +351,41 @@ html.codex-dream-skin.dream-safe-center .dream-home > div:first-child > div:firs
   text-underline-offset: 4px;
 }
 
-.dream-home > div:first-child > div:first-child > div:first-child > div:nth-child(2) {
+.dream-home > div:first-child > div:first-child > div:first-child > div:nth-child(2),
+.dream-home .dream-skin-home-suggestions-slot {
   left: 0 !important;
   right: 0 !important;
   top: 100% !important;
   margin-top: 16px !important;
-}
-
-.dream-home .group\/home-suggestions {
+  position: absolute !important;
+  z-index: 3 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  height: auto !important;
+  max-height: none !important;
   overflow: visible !important;
 }
 
-.dream-home .group\/home-suggestions button {
+.dream-home .group\/home-suggestions,
+.dream-home .dream-skin-home-suggestions {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.dream-home .group\/home-suggestions button,
+.dream-home .dream-skin-home-suggestions button {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
   min-height: 112px !important;
   padding: 16px 14px !important;
   color: var(--dream-text) !important;

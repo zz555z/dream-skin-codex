@@ -1,3 +1,9 @@
+mod sanitize;
+
+use sanitize::{
+    assert_safe_theme_id, safe_accent_color, safe_theme_name, safe_theme_text, safe_unit_value,
+};
+
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -345,13 +351,17 @@ const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 const PROCESS_LOOKUP_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn kill_process_tree(child: &mut Child) {
+    // On Windows, never use taskkill /T here. PowerShell action scripts may
+    // have already launched Codex / the Node injector as descendants; killing
+    // the whole tree after a timeout makes a successful skin apply look like
+    // a failure and closes Codex.
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let pid = child.id();
         let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .args(["/PID", &pid.to_string(), "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -396,7 +406,14 @@ fn run_command_with_timeout(
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    kill_process_tree(&mut child);
+                    // Detach from the still-running action. On Windows this must not
+                    // tear down Codex/injector that the script already started.
+                    if cfg!(target_os = "windows") && program.eq_ignore_ascii_case("powershell.exe") {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    } else {
+                        kill_process_tree(&mut child);
+                    }
                     return Err(EngineError::Message(format!(
                         "命令超时 ({timeout:?}): {program}"
                     )));
@@ -519,6 +536,7 @@ fn run_windows_script(script_name: &str, args: &[&str]) -> EngineResult<ActionRe
     let script_str = script.to_string_lossy().to_string();
     let mut argv = vec![
         "-NoProfile",
+        "-NonInteractive",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
@@ -1440,78 +1458,6 @@ pub fn delete_theme(id: &str) -> EngineResult<ActionResult> {
         message: format!("已删除主题 {id}"),
         theme_id: Some(id.to_string()),
     })
-}
-
-fn assert_safe_theme_id(id: &str) -> EngineResult<()> {
-    if id.is_empty()
-        || id.len() > 80
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(EngineError::Message("主题 ID 不合法".into()));
-    }
-    Ok(())
-}
-
-fn safe_theme_name(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(40)
-        .collect();
-    if cleaned.is_empty() {
-        "我的主题".into()
-    } else {
-        cleaned
-    }
-}
-
-fn safe_theme_text(value: Option<&str>, fallback: &str, max_chars: usize) -> String {
-    let cleaned: String = value
-        .unwrap_or("")
-        .chars()
-        .filter(|c| !c.is_control() && *c != '\u{2028}' && *c != '\u{2029}')
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(max_chars)
-        .collect();
-    if cleaned.is_empty() {
-        fallback.to_string()
-    } else {
-        cleaned
-    }
-}
-
-fn safe_accent_color(value: Option<&str>) -> EngineResult<Option<String>> {
-    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    let valid = raw.len() == 7
-        && raw.starts_with('#')
-        && raw[1..].chars().all(|character| character.is_ascii_hexdigit());
-    if !valid {
-        return Err(EngineError::Message(
-            "强调色必须是六位十六进制颜色，例如 #e08a91".into(),
-        ));
-    }
-    Ok(Some(raw.to_ascii_lowercase()))
-}
-
-fn safe_unit_value(value: Option<f64>, label: &str) -> EngineResult<Option<f64>> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(EngineError::Message(format!(
-            "{label} 必须是 0 到 1 之间的数字"
-        )));
-    }
-    Ok(Some(value))
 }
 
 fn now_millis() -> u128 {
