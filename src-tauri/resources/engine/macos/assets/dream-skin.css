@@ -584,23 +584,14 @@ html.codex-dream-skin .dream-skin-home {
 }
 
 .dream-skin-home > div:first-child {
-  /* box-sizing so padding is inside 100%, avoids native home scrollbar */
   box-sizing: border-box !important;
-  min-height: 100% !important;
-  height: 100% !important;
-  max-height: 100% !important;
   padding-top: 15px !important;
-  overflow: visible !important;
 }
 
 .dream-skin-home > div:first-child > div:first-child {
-  /* original reserved band height */
-  flex: 0 0 440px !important;
-  min-height: 440px !important;
   align-items: flex-start !important;
   padding-bottom: 0 !important;
   position: relative !important;
-  overflow: visible !important;
 }
 
 .dream-skin-home > div:first-child > div:first-child > div:first-child {
@@ -608,10 +599,6 @@ html.codex-dream-skin .dream-skin-home {
   isolation: isolate;
   width: calc(100% - 44px) !important;
   max-width: none !important;
-  height: clamp(248px, 31cqw, 376px) !important;
-  min-height: 248px !important;
-  flex: 0 1 auto !important;
-  overflow: visible !important;
   padding: 0 !important;
   border: 1px solid rgb(var(--ds-accent-rgb) / .30) !important;
   border-radius: 22px !important;
@@ -740,33 +727,39 @@ html.codex-dream-skin:is([data-dream-art-safe="center"], [data-dream-art-safe-ar
   opacity: .86;
 }
 
-.dream-skin-home > div:first-child > div:first-child > div:first-child > div:nth-child(2),
+/* Suggestion slot container */
 .dream-skin-home .dream-skin-home-suggestions-slot {
-  position: absolute !important;
-  left: 14px !important;
-  right: 14px !important;
-  top: 100% !important;
-  margin-top: 12px !important;
-  z-index: 2 !important;
   display: block !important;
   width: auto !important;
   height: auto !important;
+  max-height: none !important;
   overflow: visible !important;
   pointer-events: auto !important;
 }
 
-/* 4 cards in one horizontal row (not stacked vertically) */
+/* The suggestion group (section) and intermediate wrappers:
+   remove flex-col stacking, let content flow as block */
 .dream-skin-home .group\/home-suggestions,
 .dream-skin-home .dream-skin-home-suggestions {
-  display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  gap: 12px !important;
+  display: block !important;
   width: 100% !important;
   overflow: visible !important;
 }
 .dream-skin-home .group\/home-suggestions > *,
 .dream-skin-home .dream-skin-home-suggestions > * {
+  display: block !important;
+  width: 100% !important;
   min-width: 0 !important;
+}
+
+/* The actual button parent: horizontal 4-column grid */
+.dream-skin-home .dream-skin-home-suggestions-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: auto !important;
+  padding-left: 0 !important;
 }
 
 .dream-skin-home .group\/home-suggestions button {
@@ -1148,14 +1141,6 @@ html.codex-dream-skin [data-message-author-role] { border-radius: 16px; }
 @media (max-width: 900px) {
   .dream-skin-brand { left: 15px; }
   .dream-skin-brand b { font-size: 12px; }
-  .dream-skin-home > div:first-child > div:first-child {
-    flex-basis: 408px !important;
-    min-height: 408px !important;
-  }
-  .dream-skin-home > div:first-child > div:first-child > div:first-child {
-    height: 232px !important;
-    min-height: 232px !important;
-  }
   .dream-skin-home > div:first-child > div:first-child > div:first-child > div:first-child { padding: 0 26px; }
   .dream-skin-home > div:first-child > div:first-child > div:first-child > div:first-child > div:first-child {
     width: min(58%, 460px) !important;

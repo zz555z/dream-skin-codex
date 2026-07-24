@@ -375,11 +375,7 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => {
-      if (!busy) void refresh();
-    }, 8000);
-    return () => window.clearInterval(timer);
-  }, [busy, refresh]);
+  }, [refresh]);
 
   const runAction = useCallback(
     async (

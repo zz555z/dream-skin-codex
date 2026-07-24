@@ -19,21 +19,108 @@
     return null;
   }
 
+  // Find the suggestion slot by DOM structure (class names change across Codex versions).
+  // Current Codex DOM: the slot is an absolutely-positioned div below the hero area,
+  // typically: home > div:nth-child(2) > div > div > div:nth-child(2).absolute.top-full
+  function findSuggestionSlot(home) {
+    if (!home) return null;
+    // Strategy 1: look for an absolute-positioned div with top-full (the suggestion slot)
+    try {
+      for (const el of home.querySelectorAll('div.absolute')) {
+        if (el.classList.contains('top-full')) return el;
+      }
+    } catch {}
+    // Strategy 2: structural path fallback
+    const secondChild = home.children[1];
+    if (secondChild) {
+      const inner = secondChild.firstElementChild?.firstElementChild;
+      if (inner && inner.children.length >= 2) {
+        const slot = inner.children[1];
+        if (slot?.classList.contains('absolute')) return slot;
+      }
+    }
+    return null;
+  }
+
+  // Apply horizontal grid layout to suggestion cards via inline styles.
+  // DOM structure: slot > section.flex.flex-col > div > div.flex.flex-col > buttons
+  // We need to find the direct parent of the buttons and make it a grid.
+  function applySuggestionGrid(slot) {
+    if (!slot) return;
+    const buttons = [...slot.querySelectorAll('button')];
+    if (buttons.length < 2) return;
+
+    // Find the direct parent of the suggestion buttons
+    const buttonParent = buttons[0].parentElement;
+    if (!buttonParent || buttonParent.querySelectorAll('button').length < 2) return;
+
+    // 1. Make the button parent a horizontal grid
+    buttonParent.classList.add('dream-skin-home-suggestions-grid');
+    buttonParent.style.setProperty('display', 'grid', 'important');
+    buttonParent.style.setProperty('grid-template-columns', `repeat(${Math.min(buttons.length, 4)}, minmax(0, 1fr))`, 'important');
+    buttonParent.style.setProperty('gap', '12px', 'important');
+    buttonParent.style.setProperty('width', '100%', 'important');
+    buttonParent.style.setProperty('min-height', 'auto', 'important');
+    buttonParent.style.setProperty('padding-left', '0', 'important');
+
+    // 2. Fix intermediate containers: remove flex-col constraints
+    let ancestor = buttonParent.parentElement;
+    while (ancestor && ancestor !== slot) {
+      ancestor.style.setProperty('display', 'block', 'important');
+      ancestor.style.setProperty('width', '100%', 'important');
+      ancestor.style.setProperty('min-width', '0', 'important');
+      ancestor.style.setProperty('flex-direction', 'row', 'important');
+      ancestor = ancestor.parentElement;
+    }
+
+    // 3. Ensure the slot itself is visible and sized
+    slot.style.setProperty('overflow', 'visible', 'important');
+    slot.style.setProperty('height', 'auto', 'important');
+    slot.style.setProperty('max-height', 'none', 'important');
+
+    // 4. Make each button fill its grid cell
+    for (const btn of buttons) {
+      btn.style.setProperty('width', 'auto', 'important');
+      btn.style.setProperty('min-width', '0', 'important');
+    }
+  }
+
   function markHomeSuggestions(home) {
     if (!home) return;
-    const suggestionGroup = queryGroupClass(home, 'home-suggestions');
+    // Strategy 1: legacy group/home-suggestions class (older Codex versions)
+    let suggestionGroup = queryGroupClass(home, 'home-suggestions');
+    let slot = null;
+
     if (suggestionGroup) {
       suggestionGroup.classList.add('dream-skin-home-suggestions');
-      const slot = suggestionGroup.parentElement;
+      slot = suggestionGroup.parentElement;
       if (slot) slot.classList.add('dream-skin-home-suggestions-slot');
+    } else {
+      // Strategy 2: find slot by DOM structure (current Codex versions)
+      slot = findSuggestionSlot(home);
+      if (slot) {
+        slot.classList.add('dream-skin-home-suggestions-slot');
+        const buttons = slot.querySelectorAll('button');
+        if (buttons.length >= 2) {
+          const cardContainer = slot.firstElementChild && slot.firstElementChild.querySelectorAll('button').length >= 2
+            ? slot.firstElementChild : slot;
+          cardContainer.classList.add('dream-skin-home-suggestions');
+          suggestionGroup = cardContainer;
+        }
+      }
     }
+
+    // Apply grid styling when cards are present
+    if (slot) applySuggestionGrid(slot);
+
+    // Clean up stale markers
     for (const stale of home.querySelectorAll('.dream-skin-home-suggestions')) {
       if (!suggestionGroup || stale !== suggestionGroup) {
         stale.classList.remove('dream-skin-home-suggestions');
       }
     }
     for (const stale of home.querySelectorAll('.dream-skin-home-suggestions-slot')) {
-      if (!stale.querySelector('.dream-skin-home-suggestions') && !queryGroupClass(stale, 'home-suggestions')) {
+      if (stale !== slot && !stale.querySelector('.dream-skin-home-suggestions') && !queryGroupClass(stale, 'home-suggestions')) {
         stale.classList.remove('dream-skin-home-suggestions-slot');
       }
     }
@@ -43,9 +130,41 @@
     const scope = root || document;
     scope.querySelectorAll('.dream-skin-home-suggestions').forEach((node) => {
       node.classList.remove('dream-skin-home-suggestions');
+      node.style.removeProperty('display');
+      node.style.removeProperty('grid-template-columns');
+      node.style.removeProperty('gap');
+      node.style.removeProperty('width');
+      node.style.removeProperty('overflow');
     });
     scope.querySelectorAll('.dream-skin-home-suggestions-slot').forEach((node) => {
       node.classList.remove('dream-skin-home-suggestions-slot');
+      node.style.removeProperty('overflow');
+      node.style.removeProperty('height');
+      node.style.removeProperty('max-height');
+    });
+    // Clean up grid applied to the button parent
+    scope.querySelectorAll('.dream-skin-home-suggestions-grid').forEach((node) => {
+      node.classList.remove('dream-skin-home-suggestions-grid');
+      node.style.removeProperty('display');
+      node.style.removeProperty('grid-template-columns');
+      node.style.removeProperty('gap');
+      node.style.removeProperty('width');
+      node.style.removeProperty('min-height');
+      node.style.removeProperty('padding-left');
+      // Clean up buttons inside
+      node.querySelectorAll('button').forEach((btn) => {
+        btn.style.removeProperty('width');
+        btn.style.removeProperty('min-width');
+      });
+      // Clean up intermediate ancestors
+      let ancestor = node.parentElement;
+      while (ancestor && !ancestor.classList.contains('dream-skin-home-suggestions-slot')) {
+        ancestor.style.removeProperty('display');
+        ancestor.style.removeProperty('width');
+        ancestor.style.removeProperty('min-width');
+        ancestor.style.removeProperty('flex-direction');
+        ancestor = ancestor.parentElement;
+      }
     });
   }
   /* END shared:mark-home-suggestions */
