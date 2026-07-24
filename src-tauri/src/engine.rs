@@ -340,8 +340,9 @@ fn create_private_output_file(path: &Path) -> EngineResult<fs::File> {
     Ok(options.open(path)?)
 }
 
-const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
-const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+const PROCESS_LOOKUP_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn kill_process_tree(child: &mut Child) {
     #[cfg(target_os = "windows")]
@@ -654,21 +655,72 @@ pub fn initialize_windows_diagnostics() {
     }
 }
 
+fn windows_process_running(image_names: &[&str]) -> bool {
+    if image_names.is_empty() {
+        return false;
+    }
+    // tasklist is much cheaper/safer than PowerShell cold-start on the poll path.
+    for name in image_names {
+        let filter = format!("IMAGENAME eq {name}");
+        let ok = run_command_with_timeout(
+            "tasklist.exe",
+            &["/FI", filter.as_str(), "/NH"],
+            PROCESS_LOOKUP_TIMEOUT,
+        )
+        .map(|(code, stdout, _)| {
+            code == 0
+                && stdout
+                    .lines()
+                    .any(|line| line.to_ascii_lowercase().contains(&name.to_ascii_lowercase()))
+        })
+        .unwrap_or(false);
+        if ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn windows_pid_running(pid: u32, expected_image: &str) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    let filter = format!("PID eq {pid}");
+    run_command_with_timeout(
+        "tasklist.exe",
+        &["/FI", filter.as_str(), "/NH"],
+        PROCESS_LOOKUP_TIMEOUT,
+    )
+    .map(|(code, stdout, _)| {
+        code == 0
+            && stdout.lines().any(|line| {
+                let lower = line.to_ascii_lowercase();
+                lower.contains(&pid.to_string())
+                    && lower.contains(&expected_image.to_ascii_lowercase())
+            })
+    })
+    .unwrap_or(false)
+}
+
+fn windows_injector_alive(state_json: &Option<Value>) -> bool {
+    let Some(state) = state_json.as_ref() else {
+        return false;
+    };
+    let pid = state
+        .get("injectorPid")
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0) as u32;
+    if pid == 0 {
+        return false;
+    }
+    // PID + node.exe is enough for the desktop poll path. Matching start-time
+    // required WMI/PowerShell and caused freezes/timeouts on some machines.
+    windows_pid_running(pid, "node.exe")
+}
+
 fn is_codex_running() -> bool {
     if cfg!(target_os = "windows") {
-        // Prefer a lightweight process lookup. Avoid WMI/CIM on the startup path.
-        run_command_with_timeout(
-            "powershell.exe",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "if (Get-Process -Name 'ChatGPT','Codex' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
-            ],
-            Duration::from_secs(2),
-        )
-        .map(|(code, _, _)| code == 0)
-        .unwrap_or(false)
+        windows_process_running(&["ChatGPT.exe", "Codex.exe"])
     } else {
         run_command_with_timeout("/usr/bin/pgrep", &["-x", "ChatGPT"], Duration::from_secs(2))
             .map(|(code, _, _)| code == 0)
@@ -839,6 +891,7 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
 
     let state_path = state_root()?.join("state.json");
     let theme_path = theme_dir()?.join("theme.json");
+    let pause_path = state_root()?.join("paused");
     let state_json = if state_path.is_file() {
         read_json_file(&state_path).ok()
     } else {
@@ -849,27 +902,14 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     } else {
         None
     };
-    let status_json = if installed {
+
+    // Windows poll path stays pure-filesystem + tasklist. PowerShell cold starts
+    // and base64 image encoding repeatedly froze or timed out the desktop UI.
+    let status_json = if installed && !cfg!(target_os = "windows") {
         parse_status_json(app)
     } else {
         None
     };
-
-    let session = status_json
-        .as_ref()
-        .and_then(|v| read_json_field(v, "session"))
-        .or_else(|| {
-            state_json
-                .as_ref()
-                .and_then(|v| read_json_field(v, "session"))
-        })
-        .unwrap_or_else(|| {
-            if installed {
-                "ready".into()
-            } else {
-                "off".into()
-            }
-        });
 
     let default_port = if cfg!(target_os = "windows") {
         9335
@@ -886,26 +926,54 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
         })
         .unwrap_or(default_port) as u16;
 
-    let injector_alive = status_json
-        .as_ref()
-        .and_then(|v| v.get("injectorAlive").and_then(|b| b.as_bool()))
-        .unwrap_or_else(|| {
-            state_json
-                .as_ref()
-                .and_then(|v| read_json_field(v, "session"))
-                .map(|s| s == "active")
-                .unwrap_or(false)
-        });
+    let injector_alive = if cfg!(target_os = "windows") {
+        windows_injector_alive(&state_json)
+    } else {
+        status_json
+            .as_ref()
+            .and_then(|v| v.get("injectorAlive").and_then(|b| b.as_bool()))
+            .unwrap_or(false)
+    };
 
-    let applied_theme_name = status_json
+    let paused = pause_path.is_file();
+    let session = if cfg!(target_os = "windows") {
+        if injector_alive {
+            if paused {
+                "paused".into()
+            } else {
+                "active".into()
+            }
+        } else if paused {
+            "paused".into()
+        } else if state_json.is_some() {
+            "stale".into()
+        } else if installed {
+            "ready".into()
+        } else {
+            "off".into()
+        }
+    } else {
+        status_json
+            .as_ref()
+            .and_then(|v| read_json_field(v, "session"))
+            .or_else(|| {
+                state_json
+                    .as_ref()
+                    .and_then(|v| read_json_field(v, "session"))
+            })
+            .unwrap_or_else(|| {
+                if installed {
+                    "ready".into()
+                } else {
+                    "off".into()
+                }
+            })
+    };
+
+    let applied_theme_name = state_json
         .as_ref()
         .and_then(|v| read_json_field(v, "appliedThemeName"))
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            state_json
-                .as_ref()
-                .and_then(|v| read_json_field(v, "appliedThemeName"))
-        })
         .or_else(|| {
             active_theme
                 .as_ref()
@@ -919,26 +987,9 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
         .or_else(|| active_theme.as_ref().and_then(|v| read_json_field(v, "id")))
         .unwrap_or_default();
 
-    // Prefer the currently applied library pack for the left-card preview.
-    // Fall back to the active theme dir only when no applied id is available.
-    let active_image_data_url = {
-        let from_applied = (!applied_theme_id.is_empty())
-            .then_some(applied_theme_id.as_str())
-            .and_then(|id| {
-                let pack = themes_root().ok()?.join(id);
-                let theme = read_json_file(&pack.join("theme.json")).ok()?;
-                let image = read_json_field(&theme, "image")?;
-                let path = pack.join(Path::new(&image).file_name()?);
-                image_to_data_url(&path).ok()
-            });
-        from_applied.or_else(|| {
-            active_theme.as_ref().and_then(|theme| {
-                let image = read_json_field(theme, "image")?;
-                let path = theme_dir().ok()?.join(Path::new(&image).file_name()?);
-                image_to_data_url(&path).ok()
-            })
-        })
-    };
+    // Do not base64 the active artwork on every status poll. Frontend loads the
+    // left-card preview lazily via preview_theme when the applied id changes.
+    let active_image_data_url = None;
 
     let codex_running = status_json
         .as_ref()
@@ -1287,7 +1338,7 @@ pub fn apply_skin(app: Option<&AppHandle>) -> EngineResult<ActionResult> {
                 sync_windows_live_runtime(app, &[])?;
             }
         }
-        run_windows_script("start-dream-skin.ps1", &["-PromptRestart"])
+        run_windows_script("start-dream-skin.ps1", &["-RestartExisting"])
     } else {
         if engine_installed() {
             if let Some(app) = app {
@@ -1315,7 +1366,7 @@ pub fn restore_skin(app: &AppHandle) -> EngineResult<ActionResult> {
     if cfg!(target_os = "windows") {
         run_windows_script(
             "restore-dream-skin.ps1",
-            &["-RestoreBaseTheme", "-PromptRestart"],
+            &["-RestoreBaseTheme", "-ForceRestart"],
         )
     } else {
         // Push the latest restore/control scripts into the installed engine first.

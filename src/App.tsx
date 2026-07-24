@@ -10,7 +10,7 @@ type SelectedImage =
   | { source: "path"; path: string; name: string; size?: number };
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|heic|tif{1,2})$/i;
-const ACTION_TIMEOUT_MS = 45_000;
+const ACTION_TIMEOUT_MS = 120_000;
 const DEFAULT_HERO_TITLE = "我们今天来构建什么？";
 const DEFAULT_HERO_SUBTITLE = "和你的灵感一起，把想法写成代码。";
 const DEFAULT_PROJECT_LABEL = "◉ 选择项目";
@@ -49,7 +49,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       promise,
       new Promise<never>((_, reject) => {
         timeoutId = window.setTimeout(
-          () => reject(new Error("操作等待超时，后台进程可能仍在收尾，请稍后刷新状态")),
+          () => reject(new Error("操作等待超时。若正在首次启用皮肤，后台可能仍在重启 Codex，请稍等后点「刷新状态」；若反复出现请完全退出 Codex 后再试")),
           timeoutMs,
         );
       }),
@@ -59,8 +59,8 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-const STATUS_TIMEOUT_MS = 4000;
-const THEMES_TIMEOUT_MS = 8000;
+const STATUS_TIMEOUT_MS = 8000;
+const THEMES_TIMEOUT_MS = 12000;
 const PREVIEW_TIMEOUT_MS = 6000;
 
 
@@ -109,6 +109,7 @@ export default function App() {
   const [status, setStatus] = useState<StatusSnapshot | null>(null);
   const [themes, setThemes] = useState<ThemeSummary[]>([]);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [busyLabel, setBusyLabel] = useState("处理中…");
   const [toast, setToast] = useState<{ message: string; kind: "ok" | "err" } | null>(null);
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
@@ -210,12 +211,16 @@ export default function App() {
     };
   }, [advancedOpen]);
 
-  const installed = Boolean(status?.installed);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+    const installed = Boolean(status?.installed);
   const canInstall = Boolean(status?.canInstall);
 
   const showToast = useCallback((message: string, kind: "ok" | "err" = "ok") => {
     setToast({ message, kind });
-    window.setTimeout(() => setToast(null), 1000);
+    window.setTimeout(() => setToast(null), kind === "err" ? 4200 : 1600);
   }, []);
 
   const closeConfirmDialog = useCallback(() => {
@@ -318,29 +323,54 @@ export default function App() {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { silent?: boolean; forceThemes?: boolean }) => {
     if (IS_BROWSER_PREVIEW) {
       setStatus(BROWSER_PREVIEW_STATUS);
       setThemes([]);
       return;
     }
+    const silent = Boolean(options?.silent);
     try {
       const nextStatus = await withTimeout(api.getStatus(), STATUS_TIMEOUT_MS);
-      setStatus(nextStatus);
+      setStatus((current) => {
+        // Keep previously loaded card preview unless the applied theme changed.
+        if (
+          current?.activeImageDataUrl &&
+          current.appliedThemeId &&
+          current.appliedThemeId === nextStatus.appliedThemeId &&
+          !nextStatus.activeImageDataUrl
+        ) {
+          return { ...nextStatus, activeImageDataUrl: current.activeImageDataUrl };
+        }
+        return nextStatus;
+      });
       if (nextStatus.installed) {
         try {
           const nextThemes = await withTimeout(api.getThemes(), THEMES_TIMEOUT_MS);
-          setThemes(nextThemes);
+          setThemes((current) => {
+            // Preserve already-fetched previews across poll refreshes.
+            const previewById = new Map(
+              current
+                .filter((theme) => theme.previewDataUrl)
+                .map((theme) => [theme.id, theme.previewDataUrl] as const),
+            );
+            return nextThemes.map((theme) => ({
+              ...theme,
+              previewDataUrl: theme.previewDataUrl || previewById.get(theme.id),
+            }));
+          });
           void loadThemePreviews(nextThemes);
         } catch {
-          setThemes([]);
+          if (!silent || options?.forceThemes) {
+            setThemes((current) => current);
+          }
         }
       } else {
         setThemes([]);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Keep UI responsive even when Windows status PowerShell hangs/times out.
+      // Keep UI responsive; automatic polls must never spam the full-screen error card.
       setStatus((current) =>
         current
           ? {
@@ -348,7 +378,7 @@ export default function App() {
               busy: false,
               installHint:
                 current.installHint ||
-                "状态刷新超时。界面仍可操作；可稍后点「刷新」重试。",
+                "状态刷新较慢。界面仍可操作；可稍后点「刷新」重试。",
             }
           : {
               installed: false,
@@ -366,20 +396,51 @@ export default function App() {
               appliedThemeId: "",
               activeImageDataUrl: null,
               busy: false,
-              installHint: "状态刷新超时。界面仍可操作；可稍后点「刷新」重试。",
+              installHint: "状态刷新较慢。界面仍可操作；可稍后点「刷新」重试。",
             },
       );
-      showToast(localizeErrorMessage(message, "状态刷新超时"), "err");
+      if (!silent) {
+        showToast(localizeErrorMessage(message, "状态刷新超时"), "err");
+      }
     }
   }, [loadThemePreviews, showToast]);
 
+  // Lazily load the applied theme artwork for the left card. Status polling no
+  // longer embeds multi-MB base64 images on every refresh.
   useEffect(() => {
-    void refresh();
+    if (IS_BROWSER_PREVIEW) return;
+    const themeId = status?.appliedThemeId?.trim();
+    if (!themeId) return;
+    if (status?.activeImageDataUrl) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const previewDataUrl = await withTimeout(
+          api.previewTheme(themeId),
+          PREVIEW_TIMEOUT_MS,
+        );
+        if (cancelled || !previewDataUrl) return;
+        setStatus((current) => {
+          if (!current || current.appliedThemeId !== themeId) return current;
+          if (current.activeImageDataUrl) return current;
+          return { ...current, activeImageDataUrl: previewDataUrl };
+        });
+      } catch {
+        // Preview is best-effort.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status?.appliedThemeId, status?.activeImageDataUrl]);
+
+  useEffect(() => {
+    void refresh({ silent: true, forceThemes: true });
     const timer = window.setInterval(() => {
-      if (!busy) void refresh();
-    }, 8000);
+      if (!busyRef.current) void refresh({ silent: true });
+    }, 12000);
     return () => window.clearInterval(timer);
-  }, [busy, refresh]);
+  }, [refresh]);
 
   const runAction = useCallback(
     async (
@@ -408,9 +469,8 @@ export default function App() {
       } finally {
         setBusy(false);
         setBusyLabel("处理中…");
-        // Do not keep the blocking overlay up while the theme library reloads
-        // and serializes all preview images over IPC.
-        void refresh();
+        // Do not keep the blocking overlay up while the theme library reloads.
+        void refresh({ silent: true, forceThemes: true });
       }
     },
     [busy, refresh, showToast],
@@ -674,7 +734,7 @@ export default function App() {
           >
             复制生图提示词
           </button>
-          <button type="button" className="ghost" disabled={busy} onClick={() => void refresh()}>
+          <button type="button" className="ghost" disabled={busy} onClick={() => void refresh({ silent: false, forceThemes: true })}>
             刷新状态
           </button>
           <button
@@ -771,7 +831,7 @@ export default function App() {
             >
               一键安装引擎
             </button>
-            <button type="button" className="soft" disabled={busy} onClick={() => void refresh()}>
+            <button type="button" className="soft" disabled={busy} onClick={() => void refresh({ silent: false, forceThemes: true })}>
               重新检测
             </button>
           </div>
@@ -1400,7 +1460,7 @@ export default function App() {
           <div className="busy-card">
             <div className="busy-spinner" aria-hidden />
             <strong>{busyLabel}</strong>
-            <p>换肤过程可能需要几秒到几十秒，请稍候，不要关闭应用</p>
+            <p>换肤过程可能需要 1–2 分钟（尤其是首次重启 Codex），请稍候，不要关闭应用</p>
           </div>
         </div>
       ) : null}
