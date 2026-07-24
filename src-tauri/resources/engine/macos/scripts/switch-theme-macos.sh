@@ -36,6 +36,9 @@ esac
 [ "${#THEME_ID}" -le 80 ] || fail "Theme id is too long."
 
 ensure_state_root
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy 2>/dev/null || true
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
 THEMES_ROOT="$STATE_ROOT/themes"
 SRC="$THEMES_ROOT/$THEME_ID"
 [ -d "$SRC" ] || fail "Theme not found: $THEME_ID"
@@ -100,22 +103,22 @@ THEME_NAME="$("$NODE" -e 'try{const t=JSON.parse(require("fs").readFileSync(proc
 [ -n "$THEME_NAME" ] || THEME_NAME="$THEME_ID"
 
 if [ "$APPLY_NOW" != "true" ]; then
-  progress "Ready: ${THEME_NAME} (not applied)"
+  progress "已就绪：${THEME_NAME}（尚未应用）"
   exit 0
 fi
 
 # Hot path: CDP already open → seconds, not tens of seconds
 if hot_reapply_theme "$PORT" 8000 "$OPERATION_TOKEN"; then
-  progress "Done: ${THEME_NAME}"
+  progress "完成：${THEME_NAME}"
   exit 0
 fi
 
 # Cold path only when debug port is missing
-progress "CDP not ready, full start..."
-if "$SCRIPT_DIR/start-dream-skin-macos.sh" --port "$PORT" --restart-existing; then
-  progress "Done: ${THEME_NAME}"
+progress "调试端口未就绪，正在完整启用皮肤…"
+if "$SCRIPT_DIR/start-dream-skin-macos.sh" --port "$PORT" --prompt-restart; then
+  progress "完成：${THEME_NAME}"
   exit 0
 fi
 
-alert_user "Theme switched but inject failed. Click Apply Skin."
+alert_user "主题已切换，但皮肤注入失败。请再点一次「应用皮肤」，并在弹窗中选择「重启并应用」以开启调试端口。"
 exit 1

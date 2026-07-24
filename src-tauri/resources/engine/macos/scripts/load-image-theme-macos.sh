@@ -55,6 +55,9 @@ case "$SURFACE_STYLE" in glass|balanced|solid) ;; *) fail "Invalid surface style
 case "$CARD_SIZE" in compact|balanced|showcase) ;; *) fail "Invalid card size: $CARD_SIZE" ;; esac
 
 ensure_state_root
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy 2>/dev/null || true
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
 IMAGES_DIR="$STATE_ROOT/images"
 THEMES_ROOT="$STATE_ROOT/themes"
 /bin/mkdir -p "$IMAGES_DIR" "$THEMES_ROOT" "$THEME_DIR"
@@ -191,7 +194,7 @@ fi
 
 if [ "$APPLY_NOW" != "true" ]; then
   printf 'THEME_ID=%s\n' "$theme_id"
-  progress "Ready: ${THEME_NAME} (not applied)"
+  progress "已就绪：${THEME_NAME}（尚未应用）"
   exit 0
 fi
 
@@ -203,15 +206,15 @@ fi
 
 progress "Hot reapply..."
 if hot_reapply_theme "$PORT" 8000; then
-  progress "Done: ${THEME_NAME}"
+  progress "完成：${THEME_NAME}"
   exit 0
 fi
 
-progress "CDP not ready, full start..."
-if "$SCRIPT_DIR/start-dream-skin-macos.sh" --port "$PORT" --restart-existing; then
-  progress "Done: ${THEME_NAME}"
+progress "调试端口未就绪，正在完整启用皮肤…"
+if "$SCRIPT_DIR/start-dream-skin-macos.sh" --port "$PORT" --prompt-restart; then
+  progress "完成：${THEME_NAME}"
   exit 0
 fi
 
-alert_user "Image saved but inject failed. Click Apply Skin."
+alert_user "图片已保存，但皮肤注入失败。请再点一次「应用皮肤」，并在弹窗中选择「重启并应用」以开启调试端口。"
 exit 1

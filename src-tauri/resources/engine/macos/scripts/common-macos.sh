@@ -577,8 +577,18 @@ port_belongs_to_codex() {
 }
 
 # Cheap: can we talk to a loopback DevTools HTTP endpoint?
+
+# Clash/V2Ray system proxy must not intercept loopback CDP (127.0.0.1:9341).
+unset_proxy_for_local_cdp() {
+  unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy \
+        NO_PROXY no_proxy 2>/dev/null || true
+  export NO_PROXY="127.0.0.1,localhost,::1"
+  export no_proxy="127.0.0.1,localhost,::1"
+}
+
 cdp_http_ready() {
   local port="$1"
+  unset_proxy_for_local_cdp
   /usr/bin/curl --noproxy '*' --silent --fail --max-time 1 \
     "http://127.0.0.1:${port}/json/version" >/dev/null 2>&1
 }
@@ -720,9 +730,11 @@ stop_recorded_injector() {
   local saved_start
   local saved_node
   local saved_injector
-  if ! pid="$(state_field injectorPid 2>/dev/null)" || [ -z "${pid:-}" ]; then
-    printf 'Dream Skin state is damaged or missing its injector PID; state was preserved.\n' >&2
-    return 1
+  if ! pid="$(state_field injectorPid 2>/dev/null)" || [ -z "${pid:-}" ] || [ "$pid" = "null" ]; then
+    # No live injector recorded (paused/fresh/failed previous session). Safe to continue.
+    printf 'Dream Skin has no recorded injector PID; treating as already stopped.\n' >&2
+    /bin/launchctl remove "$INJECTOR_JOB_LABEL" >/dev/null 2>&1 || true
+    return 0
   fi
   # Already paused / no daemon
   if [ "$pid" = "0" ]; then
@@ -801,6 +813,7 @@ stop_recorded_injector() {
 }
 
 launch_injector_daemon() {
+  unset_proxy_for_local_cdp
   local port="$1"
   local pid=""
   local deadline=$((SECONDS + 10))
@@ -864,6 +877,7 @@ hot_reapply_theme() {
   local injector_mode=""
   local started_at=""
   local codex_pid=""
+  unset_proxy_for_local_cdp
 
   # A generic HTTP listener is not enough for a hot re-apply: only use the
   # endpoint already verified as belonging to the official Codex process.

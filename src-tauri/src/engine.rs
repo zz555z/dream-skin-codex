@@ -283,10 +283,12 @@ fn sync_windows_live_runtime(app: &AppHandle, action_scripts: &[&str]) -> Engine
 }
 
 fn sync_macos_live_runtime(app: &AppHandle, action_scripts: &[&str]) -> EngineResult<()> {
-    let mut files = Vec::with_capacity(action_scripts.len() + 9);
+    let mut files = Vec::with_capacity(action_scripts.len() + 12);
     files.extend_from_slice(action_scripts);
     files.extend_from_slice(&[
         "scripts/start-dream-skin-macos.sh",
+        "scripts/switch-theme-macos.sh",
+        "scripts/load-image-theme-macos.sh",
         "scripts/common-macos.sh",
         "scripts/injector.mjs",
         "scripts/image-metadata.mjs",

@@ -1,5 +1,54 @@
 ((cssText, artDataUrl, themeConfig) => {
   const STATE_KEY = "__CODEX_DREAM_SKIN_STATE__";
+
+  /* BEGIN shared:mark-home-suggestions */
+  // Shared home-suggestion markers for Codex renderer injectors.
+  // Prefer classList / attribute matching so Tailwind "group/..." class names
+  // never depend on multi-layer CSS/JS slash-escape gymnastics.
+  function queryGroupClass(scope, groupName) {
+    if (!scope) return null;
+    const needle = `group/${groupName}`;
+    if (scope.classList?.contains(needle)) return scope;
+    try {
+      for (const el of scope.querySelectorAll(`[class*="${needle}"]`)) {
+        if (el.classList?.contains(needle)) return el;
+      }
+    } catch {
+      // ignore invalid selectors in older hosts
+    }
+    return null;
+  }
+
+  function markHomeSuggestions(home) {
+    if (!home) return;
+    const suggestionGroup = queryGroupClass(home, 'home-suggestions');
+    if (suggestionGroup) {
+      suggestionGroup.classList.add('dream-skin-home-suggestions');
+      const slot = suggestionGroup.parentElement;
+      if (slot) slot.classList.add('dream-skin-home-suggestions-slot');
+    }
+    for (const stale of home.querySelectorAll('.dream-skin-home-suggestions')) {
+      if (!suggestionGroup || stale !== suggestionGroup) {
+        stale.classList.remove('dream-skin-home-suggestions');
+      }
+    }
+    for (const stale of home.querySelectorAll('.dream-skin-home-suggestions-slot')) {
+      if (!stale.querySelector('.dream-skin-home-suggestions') && !queryGroupClass(stale, 'home-suggestions')) {
+        stale.classList.remove('dream-skin-home-suggestions-slot');
+      }
+    }
+  }
+
+  function unmarkHomeSuggestions(root) {
+    const scope = root || document;
+    scope.querySelectorAll('.dream-skin-home-suggestions').forEach((node) => {
+      node.classList.remove('dream-skin-home-suggestions');
+    });
+    scope.querySelectorAll('.dream-skin-home-suggestions-slot').forEach((node) => {
+      node.classList.remove('dream-skin-home-suggestions-slot');
+    });
+  }
+  /* END shared:mark-home-suggestions */
   const DISABLED_KEY = "__CODEX_DREAM_SKIN_DISABLED__";
   const STYLE_ID = "codex-dream-skin-style";
   const CHROME_ID = "codex-dream-skin-chrome";
@@ -556,45 +605,41 @@
     return shell;
   };
 
+  const hasGroupClass = (root, groupName) => {
+    if (!root) return false;
+    const needle = `group/${groupName}`;
+    try {
+      for (const el of root.querySelectorAll(`[class*="${needle}"]`)) {
+        if (el.classList?.contains(needle)) return true;
+      }
+    } catch {}
+    return false;
+  };
+
   const syncRouteState = (shell, { layout = false } = {}) => {
     metrics.routePasses += 1;
     const root = document.documentElement;
     if (!root) return;
     shell ||= root.getAttribute(SHELL_ATTR) || resolvedShell();
     const shellMain = document.querySelector("main.main-surface") || document.querySelector("main");
-    const homeIndicator = document.querySelector('[data-testid="home-icon"]');
-    const home = homeIndicator?.closest('[role="main"]') ||
-      [...document.querySelectorAll('[role="main"]')].find((candidate) =>
-        candidate.querySelector('[data-feature="game-source"]') &&
-        candidate.querySelector('.group\\\\/home-suggestions')) || null;
-    for (const candidate of document.querySelectorAll('[role="main"].dream-skin-home')) {
-      if (candidate !== home) candidate.classList.remove("dream-skin-home");
-    }
-    if (home) home.classList.add("dream-skin-home");
-    const homeUtilityBars = new Set(home
-      ? home.querySelectorAll('[class*="_homeUtilityBar_"]')
-      : []);
-    for (const candidate of document.querySelectorAll(".dream-skin-home-utility")) {
-      if (!homeUtilityBars.has(candidate)) candidate.classList.remove("dream-skin-home-utility");
-    }
-    for (const candidate of homeUtilityBars) candidate.classList.add("dream-skin-home-utility");
-
-    if (!shellMain || !document.body) return;
-    if (observedShellMain !== shellMain) {
-      resizeObserver?.disconnect();
-      resizeObserver?.observe(shellMain);
-      observedShellMain = shellMain;
-      layout = true;
-    }
-    shellMain.classList.toggle("dream-skin-home-shell", Boolean(home));
     let chrome = document.getElementById(CHROME_ID);
     let created = false;
-    if (!chrome || chrome.parentElement !== document.body) {
-      chrome?.remove();
-      chrome = document.createElement("div");
-      chrome.id = CHROME_ID;
-      chrome.setAttribute("aria-hidden", "true");
-      chrome.innerHTML = `
+
+    // Create chrome before home probes so a selector failure cannot leave
+    // the skin installed without verification markers.
+    if (shellMain && document.body) {
+      if (observedShellMain !== shellMain) {
+        resizeObserver?.disconnect();
+        resizeObserver?.observe(shellMain);
+        observedShellMain = shellMain;
+        layout = true;
+      }
+      if (!chrome || chrome.parentElement !== document.body) {
+        chrome?.remove();
+        chrome = document.createElement("div");
+        chrome.id = CHROME_ID;
+        chrome.setAttribute("aria-hidden", "true");
+        chrome.innerHTML = `
         <div class="dream-skin-brand">
           <span class="dream-skin-portal-mark">◉</span>
           <span><b></b><small></small></span>
@@ -603,10 +648,37 @@
         <div class="dream-skin-quote"></div>
         <div class="dream-skin-particles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <div class="dream-skin-orbit"></div>`;
-      document.body.appendChild(chrome);
-      created = true;
-      chromeParts = null;
+        document.body.appendChild(chrome);
+        created = true;
+        chromeParts = null;
+      }
     }
+
+    const homeIndicator = document.querySelector('[data-testid="home-icon"]');
+    const home = homeIndicator?.closest('[role="main"]') ||
+      [...document.querySelectorAll('[role="main"]')].find((candidate) =>
+        candidate.querySelector('[data-feature="game-source"]') &&
+        hasGroupClass(candidate, 'home-suggestions')) || null;
+    for (const candidate of document.querySelectorAll('[role="main"].dream-skin-home')) {
+      if (candidate !== home) candidate.classList.remove("dream-skin-home");
+    }
+    if (home) home.classList.add("dream-skin-home");
+    try {
+      markHomeSuggestions(home);
+    } catch (error) {
+      console.warn("[dream-skin] markHomeSuggestions failed", error);
+    }
+
+    const homeUtilityBars = new Set(home
+      ? home.querySelectorAll('[class*="_homeUtilityBar_"]')
+      : []);
+    for (const candidate of document.querySelectorAll(".dream-skin-home-utility")) {
+      if (!homeUtilityBars.has(candidate)) candidate.classList.remove("dream-skin-home-utility");
+    }
+    for (const candidate of homeUtilityBars) candidate.classList.add("dream-skin-home-utility");
+
+    if (!shellMain || !document.body || !chrome) return;
+    shellMain.classList.toggle("dream-skin-home-shell", Boolean(home));
     if (!chromeParts || chromeParts.chrome !== chrome) {
       chromeParts = {
         chrome,
@@ -635,6 +707,7 @@
     }
   };
 
+
   const ensure = ({ root: rootPass = true, route = true, layout = true } = {}) => {
     if (window[DISABLED_KEY]) return;
     const root = document.documentElement;
@@ -654,6 +727,7 @@
     document.documentElement?.style.removeProperty("--dream-skin-art");
     for (const name of THEME_VARIABLES) document.documentElement?.style.removeProperty(name);
     document.querySelectorAll(".dream-skin-home").forEach((node) => node.classList.remove("dream-skin-home"));
+    unmarkHomeSuggestions(document);
     document.querySelectorAll(".dream-skin-home-shell").forEach((node) => node.classList.remove("dream-skin-home-shell"));
     document.querySelectorAll(".dream-skin-home-utility").forEach((node) => node.classList.remove("dream-skin-home-utility"));
     document.getElementById(STYLE_ID)?.remove();

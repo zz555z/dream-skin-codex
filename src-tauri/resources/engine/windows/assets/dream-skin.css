@@ -3,18 +3,20 @@
   --dream-accent: oklch(0.66 0.15 18);
   --dream-accent-ink: oklch(0.98 0.006 20);
   --dream-art-position: 72% 45%;
-  --dream-canvas: color-mix(in oklab, oklch(0.975 0.006 35) 96%, var(--dream-accent));
-  --dream-surface: color-mix(in oklab, oklch(0.988 0.004 35) 97%, var(--dream-accent));
-  --dream-surface-raised: color-mix(in oklab, oklch(0.995 0.003 35) 98%, var(--dream-accent));
-  --dream-sidebar: color-mix(in oklab, oklch(0.965 0.006 35) 94%, var(--dream-accent));
-  --dream-text: oklch(0.25 0.018 30);
-  --dream-text-muted: oklch(0.48 0.018 30);
-  --dream-line: color-mix(in oklab, oklch(0.75 0.012 30) 80%, var(--dream-accent));
-  --dream-line-soft: color-mix(in oklab, transparent 76%, var(--dream-accent));
-  --dream-accent-soft: color-mix(in oklab, var(--dream-accent) 14%, var(--dream-surface));
-  --dream-accent-hover: color-mix(in oklab, var(--dream-accent) 20%, var(--dream-surface));
-  --dream-hero-shade: color-mix(in oklab, var(--dream-surface) 93%, transparent);
-  --dream-ambient-opacity: .18;
+  /* Neutral bright shell (mac-like). Do not mix accent into whole canvas —
+     that turns the home page warm/orange when the wallpaper accent is warm. */
+  --dream-canvas: oklch(0.975 0.004 250);
+  --dream-surface: oklch(0.988 0.003 250);
+  --dream-surface-raised: oklch(0.995 0.002 250);
+  --dream-sidebar: oklch(0.965 0.004 250);
+  --dream-text: oklch(0.24 0.01 250);
+  --dream-text-muted: oklch(0.48 0.01 250);
+  --dream-line: color-mix(in oklab, oklch(0.78 0.01 250) 88%, var(--dream-accent));
+  --dream-line-soft: color-mix(in oklab, transparent 82%, oklch(0.55 0.01 250));
+  --dream-accent-soft: color-mix(in oklab, var(--dream-accent) 12%, var(--dream-surface));
+  --dream-accent-hover: color-mix(in oklab, var(--dream-accent) 18%, var(--dream-surface));
+  --dream-hero-shade: color-mix(in oklab, var(--dream-surface) 94%, transparent);
+  --dream-ambient-opacity: .14;
   --dream-shadow: 0 16px 42px color-mix(in oklab, var(--dream-accent) 9%, transparent);
   --dream-immersive-edge: color-mix(in oklab, var(--dream-surface) 46%, transparent);
   --dream-immersive-mid: color-mix(in oklab, var(--dream-surface) 28%, transparent);
@@ -235,10 +237,12 @@ html.codex-dream-skin .dream-home {
 }
 
 .dream-home > div:first-child > div:first-child {
-  flex: 0 0 clamp(390px, 42cqw, 510px) !important;
-  min-height: 390px !important;
+  /* Keep room for hero copy + four home suggestion cards. */
+  flex: 0 0 auto !important;
+  min-height: clamp(500px, 56vh, 620px) !important;
   align-items: flex-start !important;
-  padding-bottom: 0 !important;
+  padding-bottom: 18px !important;
+  overflow: visible !important;
 }
 
 .dream-home > div:first-child > div:first-child > div:first-child {
@@ -349,18 +353,41 @@ html.codex-dream-skin.dream-safe-center .dream-home > div:first-child > div:firs
   text-underline-offset: 4px;
 }
 
-.dream-home > div:first-child > div:first-child > div:first-child > div:nth-child(2) {
+.dream-home > div:first-child > div:first-child > div:first-child > div:nth-child(2),
+.dream-home .dream-skin-home-suggestions-slot {
   left: 0 !important;
   right: 0 !important;
   top: 100% !important;
   margin-top: 16px !important;
-}
-
-.dream-home .group\/home-suggestions {
+  position: absolute !important;
+  z-index: 3 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  height: auto !important;
+  max-height: none !important;
   overflow: visible !important;
 }
 
-.dream-home .group\/home-suggestions button {
+.dream-home .group\/home-suggestions,
+.dream-home .dream-skin-home-suggestions {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.dream-home .group\/home-suggestions button,
+.dream-home .dream-skin-home-suggestions button {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
   min-height: 112px !important;
   padding: 16px 14px !important;
   color: var(--dream-text) !important;
@@ -678,6 +705,54 @@ html.codex-dream-skin.dream-art-wide main.main-surface
     text-align: center !important;
   }
 }
+
+/* BEGIN shared:home-suggestions */
+/* Shared home suggestion cards (Codex home route).
+   Platform CSS should keep host-specific hero metrics, but use these rules for
+   the four prompt cards so they stay visible across shell updates. */
+
+.dream-skin-home .dream-skin-home-suggestions-slot,
+.dream-home .dream-skin-home-suggestions-slot {
+  position: absolute !important;
+  z-index: 3 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.dream-skin-home .group\/home-suggestions,
+.dream-skin-home .dream-skin-home-suggestions,
+.dream-home .group\/home-suggestions,
+.dream-home .dream-skin-home-suggestions {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.dream-skin-home .group\/home-suggestions button,
+.dream-skin-home .dream-skin-home-suggestions button,
+.dream-home .group\/home-suggestions button,
+.dream-home .dream-skin-home-suggestions button {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+html.codex-dream-skin main.main-surface.dream-skin-home-shell,
+html.codex-dream-skin main.main-surface.dream-home-shell {
+  overflow: visible !important;
+}
+/* END shared:home-suggestions */
 
 @media (prefers-reduced-motion: reduce) {
   html.codex-dream-skin *,

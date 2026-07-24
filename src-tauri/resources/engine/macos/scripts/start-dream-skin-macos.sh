@@ -46,6 +46,10 @@ case "$PORT" in ''|*[!0-9]*) fail "Invalid port: $PORT" ;; esac
 [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail "Port must be between 1024 and 65535."
 
 ensure_state_root
+# Avoid Clash/system proxy hijacking loopback CDP.
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy 2>/dev/null || true
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
 if [ "$FOREGROUND_INJECTOR" != "true" ]; then
   OPERATION_TOKEN="$(new_operation_token)"
   write_operation_state applying "正在应用皮肤" "$OPERATION_TOKEN" \
@@ -91,7 +95,8 @@ if codex_is_running && [ "$DEBUG_READY" = "false" ]; then
 fi
 
 if [ -f "$STATE_PATH" ]; then
-  stop_recorded_injector
+  # Missing/stale injector PID must not abort apply; cold start can recreate it.
+  stop_recorded_injector || true
 fi
 
 INJECTOR_PID=""
@@ -153,6 +158,14 @@ if [ "$verify_code" -ne 0 ]; then
   fi
 fi
 if [ "$verify_code" -ne 0 ]; then
+  # Keep the verification JSON so users/support can see which home checks failed.
+  if [ -n "${VERIFY_OUTPUT:-}" ] && [ -f "$VERIFY_OUTPUT" ]; then
+    {
+      printf '%s verification failed payload:\n' "$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')"
+      /bin/cat "$VERIFY_OUTPUT" 2>/dev/null || true
+      printf '\n'
+    } >> "$INJECTOR_ERROR_LOG" 2>/dev/null || true
+  fi
   # Verify the PID/path/start-time tuple before changing state. If the watcher
   # cannot be stopped safely, preserve the state as evidence and fail closed.
   if ! stop_recorded_injector; then

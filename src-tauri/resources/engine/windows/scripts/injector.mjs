@@ -8,7 +8,7 @@ import { readImageMetadata } from "./image-metadata.mjs";
 const scriptPath = fileURLToPath(import.meta.url);
 const here = path.dirname(scriptPath);
 const root = path.resolve(here, "..");
-const SKIN_VERSION = "1.2.5";
+const SKIN_VERSION = "1.2.10";
 const MAX_ART_BYTES = 16 * 1024 * 1024;
 const STRONG_THEME_AUDIT_MS = 30000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
@@ -907,11 +907,24 @@ async function verifySession(session) {
       const r = node.getBoundingClientRect();
       return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     };
-    const home = document.querySelector('.dream-home');
+    const findGroup = (root, groupName) => {
+      if (!root) return null;
+      const needle = 'group/' + groupName;
+      try {
+        for (const el of root.querySelectorAll('[class*="' + needle + '"]')) {
+          if (el.classList && el.classList.contains(needle)) return el;
+        }
+      } catch {}
+      return null;
+    };
+    const home = document.querySelector('.dream-home') ||
+      document.querySelector('[role="main"].dream-skin-home');
     const homeSignal = document.querySelector('[data-testid="home-icon"]') ||
       document.querySelector('[data-feature="game-source"]') ||
-      document.querySelector('.group\\/home-suggestions');
-    const suggestions = home?.querySelector('.group\\\\/home-suggestions') ?? null;
+      findGroup(document, 'home-suggestions');
+    const suggestions = home
+      ? (home.querySelector('.dream-skin-home-suggestions') || findGroup(home, 'home-suggestions'))
+      : null;
     const cards = suggestions ? [...suggestions.querySelectorAll('button')].map(box) : [];
     const result = {
       installed: document.documentElement.classList.contains('codex-dream-skin'),
@@ -937,7 +950,8 @@ async function verifySession(session) {
     // the applied skin. Only use stable skin-owned markers for verification;
     // layout probes remain diagnostic data rather than failure conditions.
     result.pass = result.installed && result.version === result.expectedVersion &&
-      result.stylePresent && result.chromePresent && (!result.homeRoute || result.homePresent);
+      result.stylePresent && result.chromePresent &&
+      (!result.homeRoute || result.homePresent);
     return result;
   })()`);
 }
