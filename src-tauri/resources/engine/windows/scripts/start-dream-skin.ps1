@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [int]$Port = 9335,
   [switch]$RestartExisting,
@@ -245,8 +245,9 @@ try {
         '--browser-id', $cdpIdentity.BrowserId,
         '--timeout-ms', '8000'
       )
+      $verifyErrPath = ($VerifyPath + '.err.txt')
       Start-Process -FilePath $node.Path -ArgumentList $verifyArgs -WindowStyle Hidden `
-        -RedirectStandardOutput $VerifyPath -RedirectStandardError "$VerifyPath.err" | Out-Null
+        -RedirectStandardOutput $VerifyPath -RedirectStandardError $verifyErrPath | Out-Null
     } catch {
       Write-Warning "Background Dream Skin verify could not be started: $($_.Exception.Message)"
     }

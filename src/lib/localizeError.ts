@@ -11,6 +11,8 @@ const RULES: Array<{ test: RegExp; text: string }> = [
   { test: /Node\.js|未找到 Node|需要 Node/i, text: "未检测到 Node.js 22+。Windows 请安装 https://nodejs.org 的 LTS，勾选 Add to PATH，重新打开本应用后再安装引擎。" },
   { test: /Permission denied|Operation not permitted/i, text: "权限不足，请检查系统权限后重试。" },
   { test: /已取消选择|cancel/i, text: "已取消操作。" },
+  { test: /TerminatorExpectedAtEndOfString|FullyQualifiedErrorId|ParserError/i, text: "Windows 脚本解析失败（多为脚本编码问题）。请点「重新安装注入器」同步最新引擎后重试。" },
+  { test: /Another Codex Dream Skin .* already running/i, text: "已有 Dream Skin 操作在进行中，请稍候再试。" },
 ];
 
 export function localizeErrorMessage(raw: string, fallback = "操作失败"): string {

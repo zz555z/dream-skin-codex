@@ -1,5 +1,38 @@
 ((cssText, artDataUrl, rawConfig) => {
   const STATE_KEY = "__CODEX_DREAM_SKIN_STATE__";
+
+  /* BEGIN shared:mark-home-suggestions */
+  function markHomeSuggestions(home) {
+    if (!home) return;
+    const suggestionGroup = home.querySelector('.group\\/home-suggestions');
+    if (suggestionGroup) {
+      suggestionGroup.classList.add('dream-skin-home-suggestions');
+      const slot = suggestionGroup.parentElement;
+      if (slot) slot.classList.add('dream-skin-home-suggestions-slot');
+    }
+    for (const stale of home.querySelectorAll('.dream-skin-home-suggestions')) {
+      if (!suggestionGroup || stale !== suggestionGroup) {
+        stale.classList.remove('dream-skin-home-suggestions');
+      }
+    }
+    for (const stale of home.querySelectorAll('.dream-skin-home-suggestions-slot')) {
+      if (!stale.querySelector('.dream-skin-home-suggestions, .group\\/home-suggestions')) {
+        stale.classList.remove('dream-skin-home-suggestions-slot');
+      }
+    }
+  }
+  
+  function unmarkHomeSuggestions(root) {
+    const scope = root || document;
+    scope.querySelectorAll('.dream-skin-home-suggestions').forEach((node) => {
+      node.classList.remove('dream-skin-home-suggestions');
+    });
+    scope.querySelectorAll('.dream-skin-home-suggestions-slot').forEach((node) => {
+      node.classList.remove('dream-skin-home-suggestions-slot');
+    });
+  }
+  /* END shared:mark-home-suggestions */
+
   const STYLE_ID = "codex-dream-skin-style";
   const CHROME_ID = "codex-dream-skin-chrome";
   const ROOT_CLASSES = [
@@ -280,8 +313,7 @@
     root?.classList.remove(...ROOT_CLASSES);
     for (const property of ROOT_PROPERTIES) root?.style.removeProperty(property);
     document.querySelectorAll(".dream-home").forEach((node) => node.classList.remove("dream-home"));
-    document.querySelectorAll(".dream-skin-home-suggestions").forEach((node) => node.classList.remove("dream-skin-home-suggestions"));
-    document.querySelectorAll(".dream-skin-home-suggestions-slot").forEach((node) => node.classList.remove("dream-skin-home-suggestions-slot"));
+    unmarkHomeSuggestions(document);
     document.querySelectorAll(".dream-task").forEach((node) => node.classList.remove("dream-task"));
     document.querySelectorAll(".dream-home-shell").forEach((node) => node.classList.remove("dream-home-shell"));
     document.querySelectorAll(`.${HOME_UTILITY_CLASS}`).forEach((node) => node.classList.remove(HOME_UTILITY_CLASS));
@@ -362,24 +394,7 @@
       candidate.classList.toggle("dream-home", candidate === home);
       candidate.classList.toggle("dream-task", candidate !== home);
     }
-    if (home) {
-      const suggestionGroup = home.querySelector('.group\\/home-suggestions');
-      if (suggestionGroup) {
-        suggestionGroup.classList.add("dream-skin-home-suggestions");
-        const slot = suggestionGroup.parentElement;
-        if (slot) slot.classList.add("dream-skin-home-suggestions-slot");
-      }
-      for (const stale of home.querySelectorAll(".dream-skin-home-suggestions")) {
-        if (!suggestionGroup || stale !== suggestionGroup) {
-          stale.classList.remove("dream-skin-home-suggestions");
-        }
-      }
-      for (const stale of home.querySelectorAll(".dream-skin-home-suggestions-slot")) {
-        if (!stale.querySelector(".dream-skin-home-suggestions, .group\\/home-suggestions")) {
-          stale.classList.remove("dream-skin-home-suggestions-slot");
-        }
-      }
-    }
+    markHomeSuggestions(home);
     const utilityBars = new Set(home ? home.querySelectorAll('[class*="_homeUtilityBar_"]') : []);
     for (const candidate of document.querySelectorAll(`.${HOME_UTILITY_CLASS}`)) {
       if (!utilityBars.has(candidate)) candidate.classList.remove(HOME_UTILITY_CLASS);

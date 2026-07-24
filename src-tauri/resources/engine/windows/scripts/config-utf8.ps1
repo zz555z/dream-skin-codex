@@ -1,4 +1,4 @@
-$script:DreamSkinUtf8NoBom = [System.Text.UTF8Encoding]::new($false, $true)
+﻿$script:DreamSkinUtf8NoBom = [System.Text.UTF8Encoding]::new($false, $true)
 $script:DreamSkinLegacyAppearanceTheme = 'appearanceTheme = "light"'
 $script:DreamSkinManagedLightCodeTheme = 'appearanceLightCodeThemeId = "codex"'
 $script:DreamSkinManagedLightChromeTheme = 'appearanceLightChromeTheme = { accent = "#B65CFF", contrast = 64, fonts = { code = "Cascadia Code", ui = "Microsoft YaHei UI" }, ink = "#4A235F", opaqueWindows = true, semanticColors = { diffAdded = "#BCE8CF", diffRemoved = "#F7B8CE", skill = "#C47BFF" }, surface = "#FFF4FA" }'
@@ -355,7 +355,7 @@ function Test-DreamSkinLegacyManagedLightTrio {
 
 function Get-DreamSkinAppearanceMarkerPath {
   param([Parameter(Mandatory = $true)][string]$BackupPath)
-  return "$BackupPath.appearance.json"
+  return ($BackupPath + '.appearance.json')
 }
 
 function Read-DreamSkinAppearanceMarker {

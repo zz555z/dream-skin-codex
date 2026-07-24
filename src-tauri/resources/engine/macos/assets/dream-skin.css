@@ -1169,6 +1169,54 @@ html.codex-dream-skin [data-message-author-role] { border-radius: 16px; }
   .dream-skin-home .group\/home-suggestions button { min-height: 112px !important; font-size: 12px !important; }
 }
 
+/* BEGIN shared:home-suggestions */
+/* Shared home suggestion cards (Codex home route).
+   Platform CSS should keep host-specific hero metrics, but use these rules for
+   the four prompt cards so they stay visible across shell updates. */
+
+.dream-skin-home .dream-skin-home-suggestions-slot,
+.dream-home .dream-skin-home-suggestions-slot {
+  position: absolute !important;
+  z-index: 3 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.dream-skin-home .group\/home-suggestions,
+.dream-skin-home .dream-skin-home-suggestions,
+.dream-home .group\/home-suggestions,
+.dream-home .dream-skin-home-suggestions {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.dream-skin-home .group\/home-suggestions button,
+.dream-skin-home .dream-skin-home-suggestions button,
+.dream-home .group\/home-suggestions button,
+.dream-home .dream-skin-home-suggestions button {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+html.codex-dream-skin main.main-surface.dream-skin-home-shell,
+html.codex-dream-skin main.main-surface.dream-home-shell {
+  overflow: visible !important;
+}
+/* END shared:home-suggestions */
+
 @media (prefers-reduced-motion: reduce) {
   html.codex-dream-skin *,
   html.codex-dream-skin *::before,

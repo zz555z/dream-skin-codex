@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$ImagePath,
   [string]$Name = '我的主题',
@@ -131,6 +131,6 @@ if (-not $NoApply) {
     # Start/restart must finish enough for state.json, but keep verify short so the
     # desktop app can leave the spinner and show success without killing Codex.
     & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
-    Write-Host '皮肤会话已重新启动，请查看 Codex 窗口。'
+    Write-Host 'Dream Skin session restarted; check the Codex window.'
   }
 }

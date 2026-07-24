@@ -49,30 +49,50 @@ export function useEngineStatus(options: {
     busyRef.current = busy;
   }, [busy]);
 
-  const loadThemePreviews = useCallback(async (items: ThemeSummary[]) => {
-    if (IS_BROWSER_PREVIEW || !items.length) return;
-    const pending = items.filter((theme) => !theme.previewDataUrl).slice(0, 12);
-    if (!pending.length) return;
+  const inflightPreviews = useRef(new Set<string>());
 
-    await mapPool(pending, PREVIEW_CONCURRENCY, async (theme) => {
-      try {
-        const previewDataUrl = await withTimeout(
-          api.previewTheme(theme.id),
-          PREVIEW_TIMEOUT_MS,
-        );
-        setThemes((current) =>
-          current.map((item) =>
-            item.id === theme.id && !item.previewDataUrl
-              ? { ...item, previewDataUrl }
-              : item,
-          ),
-        );
-      } catch {
-        // Preview is best-effort; keep metadata card usable without image.
-      }
-      return null;
-    });
+  const loadThemePreview = useCallback(async (themeId: string) => {
+    if (IS_BROWSER_PREVIEW || !themeId) return;
+    if (inflightPreviews.current.has(themeId)) return;
+    inflightPreviews.current.add(themeId);
+    try {
+      // Skip if already present.
+      let already = false;
+      setThemes((current) => {
+        already = Boolean(current.find((item) => item.id === themeId)?.previewDataUrl);
+        return current;
+      });
+      if (already) return;
+      const previewDataUrl = await withTimeout(
+        api.previewTheme(themeId),
+        PREVIEW_TIMEOUT_MS,
+      );
+      setThemes((current) =>
+        current.map((item) =>
+          item.id === themeId && !item.previewDataUrl
+            ? { ...item, previewDataUrl }
+            : item,
+        ),
+      );
+    } catch {
+      // Preview is best-effort; keep metadata card usable without image.
+    } finally {
+      inflightPreviews.current.delete(themeId);
+    }
   }, []);
+
+  const loadThemePreviews = useCallback(
+    async (items: ThemeSummary[], limit = 4) => {
+      if (IS_BROWSER_PREVIEW || !items.length) return;
+      const pending = items.filter((theme) => !theme.previewDataUrl).slice(0, limit);
+      if (!pending.length) return;
+      await mapPool(pending, PREVIEW_CONCURRENCY, async (theme) => {
+        await loadThemePreview(theme.id);
+        return null;
+      });
+    },
+    [loadThemePreview],
+  );
 
   const refresh = useCallback(
     async (refreshOptions?: { silent?: boolean; forceThemes?: boolean }) => {
@@ -246,6 +266,7 @@ export function useEngineStatus(options: {
     themes,
     setThemes,
     refresh,
+    loadThemePreview,
     isBrowserPreview: IS_BROWSER_PREVIEW,
   };
 }

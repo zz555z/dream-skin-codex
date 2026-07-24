@@ -34,8 +34,64 @@ if [ -f "$TMP_HELPERS/status-dream-skin.ps1" ]; then
 fi
 rm -rf "$TMP_HELPERS"
 
-echo "1.2.4-app" > "$DEST/VERSION"
-echo "1.2.4-app" > "$DEST/macos/APP_ENGINE_VERSION"
-echo "1.2.4-app" > "$DEST/windows/APP_ENGINE_VERSION"
+echo "1.2.12-app" > "$DEST/VERSION"
+echo "1.2.12-app" > "$DEST/macos/APP_ENGINE_VERSION"
+echo "1.2.12-app" > "$DEST/windows/APP_ENGINE_VERSION"
 echo "Synced engine resources to $DEST"
 du -sh "$DEST" "$DEST/macos" "$DEST/windows"
+
+# Keep platform CSS home-suggestion shared block in sync.
+SHARED_CSS="src-tauri/resources/engine/shared/home-suggestions.css"
+if [[ -f "$SHARED_CSS" ]]; then
+  node -e '
+const fs=require("fs");
+const shared=fs.readFileSync(process.argv[1],"utf8").trim()+"\n";
+const begin="/* BEGIN shared:home-suggestions */";
+const end="/* END shared:home-suggestions */";
+const block=`${begin}\n${shared}${end}\n`;
+for (const file of process.argv.slice(2)) {
+  let text=fs.readFileSync(file,"utf8");
+  if (text.includes(begin) && text.includes(end)) {
+    const re=new RegExp(begin.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"[\\s\\S]*?"+end.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\n?");
+    text=text.replace(re, block);
+  } else {
+    text = text.includes("@media (prefers-reduced-motion: reduce)")
+      ? text.replace("@media (prefers-reduced-motion: reduce)", block+"\n@media (prefers-reduced-motion: reduce)")
+      : text.trimEnd()+"\n\n"+block;
+  }
+  fs.writeFileSync(file, text);
+  console.log("synced", file);
+}
+' "$SHARED_CSS"     "src-tauri/resources/engine/macos/assets/dream-skin.css"     "src-tauri/resources/engine/windows/assets/dream-skin.css"
+fi
+
+
+# Keep markHomeSuggestions helper inlined into platform injectors.
+SHARED_JS="src-tauri/resources/engine/shared/mark-home-suggestions.js"
+if [[ -f "$SHARED_JS" ]]; then
+  node -e '
+const fs = require("fs");
+const shared = fs.readFileSync(process.argv[1], "utf8")
+  .replace(/^\/\/.*\n/, "")
+  .trim() + "\n";
+const begin = "/* BEGIN shared:mark-home-suggestions */";
+const end = "/* END shared:mark-home-suggestions */";
+const block = `${begin}\n${shared}${end}`;
+for (const file of process.argv.slice(2)) {
+  let text = fs.readFileSync(file, "utf8");
+  if (text.includes(begin) && text.includes(end)) {
+    const re = new RegExp(begin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    text = text.replace(re, block);
+  } else if (text.includes("const STATE_KEY = \"__CODEX_DREAM_SKIN_STATE__\";")) {
+    text = text.replace(
+      "const STATE_KEY = \"__CODEX_DREAM_SKIN_STATE__\";",
+      "const STATE_KEY = \"__CODEX_DREAM_SKIN_STATE__\";\n\n  " + block.replace(/\n/g, "\n  ") + "\n",
+    );
+  }
+  fs.writeFileSync(file, text);
+  console.log("synced inject helper", file);
+}
+' "$SHARED_JS" \
+    "src-tauri/resources/engine/macos/assets/renderer-inject.js" \
+    "src-tauri/resources/engine/windows/assets/renderer-inject.js"
+fi

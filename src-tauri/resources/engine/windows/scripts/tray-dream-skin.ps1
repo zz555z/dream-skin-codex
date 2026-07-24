@@ -95,7 +95,7 @@ try {
         $null = Show-DreamSkinOperationUi -Session $session -Phase finish -Token $begin.Token `
           -UiState success -Message '已开始应用皮肤' -TimeoutMs 1500
       }
-      $notify.ShowBalloonTip(1800, 'Codex Dream Skin', '正在应用皮肤…', [System.Windows.Forms.ToolTipIcon]::Info)
+      $notify.ShowBalloonTip(1800, 'Codex Dream Skin', '正在应用皮肤...', [System.Windows.Forms.ToolTipIcon]::Info)
     }
     # Match macOS menubar: pause = mark + live remove; resume = clear pause + re-apply.
     if ($paused) {
@@ -115,7 +115,7 @@ try {
         $notify.ShowBalloonTip(
           1800,
           'Codex Dream Skin',
-          '正在重新应用皮肤…',
+          '正在重新应用皮肤...',
           [System.Windows.Forms.ToolTipIcon]::Info
         )
       }
