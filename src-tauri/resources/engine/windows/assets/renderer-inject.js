@@ -1,4 +1,4 @@
-((cssText, artDataUrl, rawConfig) => {
+((cssText, artDataUrl, rawConfig, skinVersion) => {
   const STATE_KEY = "__CODEX_DREAM_SKIN_STATE__";
 
   /* BEGIN shared:mark-home-suggestions */
@@ -466,7 +466,7 @@
   });
   const timer = setInterval(ensure, 5000);
   window[STATE_KEY] = {
-    ensure, cleanup, observer, timer, scheduler, artUrl, profile, config, installToken, version: "1.2.5",
+    ensure, cleanup, observer, timer, scheduler, artUrl, profile, config, installToken, version: skinVersion,
   };
   ensure();
   analyzeArt().then((result) => {
@@ -476,5 +476,5 @@
     state.profile = result;
     ensure();
   });
-  return { installed: true, version: "1.2.5", adaptive: true };
-})(__DREAM_CSS_JSON__, __DREAM_ART_JSON__, __DREAM_THEME_JSON__)
+  return { installed: true, version: skinVersion, adaptive: true };
+})(__DREAM_CSS_JSON__, __DREAM_ART_JSON__, __DREAM_THEME_JSON__, __DREAM_SKIN_VERSION_JSON__)

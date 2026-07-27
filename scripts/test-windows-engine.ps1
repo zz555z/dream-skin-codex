@@ -29,6 +29,10 @@ foreach ($file in Get-ChildItem -LiteralPath $scriptRoot -Filter '*.ps1' -File) 
 . (Join-Path $scriptRoot 'common-windows.ps1')
 . (Join-Path $scriptRoot 'theme-windows.ps1')
 
+Write-Host 'Checking Windows renderer payload...'
+& node (Join-Path $scriptRoot 'injector.mjs') --self-test
+if ($LASTEXITCODE -ne 0) { throw 'Windows injector self-test failed.' }
+
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
   'dream-skin-windows-tests-' + [guid]::NewGuid().ToString('N')
 )

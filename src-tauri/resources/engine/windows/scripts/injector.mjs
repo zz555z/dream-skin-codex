@@ -557,7 +557,8 @@ async function loadPayload(themeDir = path.join(root, "assets"), candidateTheme 
   const payload = template
     .replace("__DREAM_CSS_JSON__", JSON.stringify(css))
     .replace("__DREAM_ART_JSON__", JSON.stringify(artDataUrl))
-    .replace("__DREAM_THEME_JSON__", JSON.stringify(loadedTheme.theme));
+    .replace("__DREAM_THEME_JSON__", JSON.stringify(loadedTheme.theme))
+    .replace("__DREAM_SKIN_VERSION_JSON__", JSON.stringify(SKIN_VERSION));
   const { imageBytes: _imageBytes, ...themeState } = loadedTheme;
   return { ...themeState, payload };
 }
@@ -1450,6 +1451,19 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
   if (/dispatchKeyEvent|dispatchMouseEvent/.test(capture.toString())) {
     throw new Error("Screenshot capture must not dispatch renderer input events");
   }
+  const selfTestPayload = await loadPayload(options.themeDir);
+  const unresolvedPayloadTokens = [
+    "__DREAM_CSS_JSON__",
+    "__DREAM_ART_JSON__",
+    "__DREAM_THEME_JSON__",
+    "__DREAM_SKIN_VERSION_JSON__",
+  ];
+  if (unresolvedPayloadTokens.some((placeholder) => selfTestPayload.payload.includes(placeholder)) ||
+      !selfTestPayload.payload.includes("version: skinVersion") ||
+      !selfTestPayload.payload.trimEnd().endsWith(`, ${JSON.stringify(SKIN_VERSION)})`) ||
+      /version:\s*["']\d/.test(selfTestPayload.payload)) {
+    throw new Error("Renderer payload version does not match the injector version");
+  }
   const verificationSource = verifySession.toString();
   if (/Boolean\(result\.(?:composer|sidebar)\)|result\.chromePointerEvents\s*===|result\.cards\.length/.test(verificationSource)) {
     throw new Error("Skin verification must not depend on mutable Codex layout selectors");
@@ -1457,7 +1471,12 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
   console.log(JSON.stringify({ pass: true, version: SKIN_VERSION, test: "loopback-cdp-validation" }));
   } else if (options.mode === "check-payload") {
     const loaded = await loadPayload(options.themeDir);
-    const unresolved = ["__DREAM_CSS_JSON__", "__DREAM_ART_JSON__", "__DREAM_THEME_JSON__"]
+    const unresolved = [
+      "__DREAM_CSS_JSON__",
+      "__DREAM_ART_JSON__",
+      "__DREAM_THEME_JSON__",
+      "__DREAM_SKIN_VERSION_JSON__",
+    ]
       .some((placeholder) => loaded.payload.includes(placeholder));
     if (unresolved) {
       throw new Error("Payload placeholders were not fully replaced");
