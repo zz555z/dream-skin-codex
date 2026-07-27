@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common-windows.ps1')
 . (Join-Path $PSScriptRoot 'theme-windows.ps1')
+Invoke-DreamSkinLockedOperation -Action {
 $StateRoot = Join-Path $env:LOCALAPPDATA 'CodexDreamSkin'
 $paths = Get-DreamSkinThemePaths -StateRoot $StateRoot
 $id = "$ThemeId".Trim()
@@ -33,4 +34,5 @@ if (-not $NoApply) {
     Write-Warning $live.Message
     & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
   }
+}
 }

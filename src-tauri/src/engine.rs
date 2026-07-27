@@ -274,6 +274,7 @@ fn sync_windows_live_runtime(app: &AppHandle, action_scripts: &[&str]) -> Engine
         "scripts/config-utf8.ps1",
         "scripts/injector.mjs",
         "scripts/status-dream-skin.ps1",
+        "scripts/tray-dream-skin.ps1",
         "scripts/image-metadata.mjs",
         "assets/renderer-inject.js",
         "assets/dream-skin.css",
@@ -344,6 +345,35 @@ fn create_private_output_file(path: &Path) -> EngineResult<fs::File> {
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
+const MAX_WINDOWS_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+
+pub(crate) fn max_import_image_bytes() -> usize {
+    if cfg!(target_os = "windows") {
+        MAX_WINDOWS_IMAGE_BYTES
+    } else {
+        MAX_UPLOAD_BYTES
+    }
+}
+
+fn validate_base64_upload_len(len: usize, max_bytes: usize) -> EngineResult<()> {
+    let max_base64_chars = max_bytes.div_ceil(3) * 4;
+    if len > max_base64_chars {
+        return Err(EngineError::Message(format!(
+            "图片超过 {}MB",
+            max_bytes / (1024 * 1024)
+        )));
+    }
+    Ok(())
+}
+
+fn windows_script_timeout(script_name: &str) -> Duration {
+    match script_name {
+        "restore-dream-skin.ps1" | "start-dream-skin.ps1" => Duration::from_secs(15 * 60),
+        "app-import-image.ps1" | "app-switch-theme.ps1" => Duration::from_secs(120),
+        _ => DEFAULT_COMMAND_TIMEOUT,
+    }
+}
 
 fn kill_process_tree(child: &mut Child) {
     #[cfg(target_os = "windows")]
@@ -406,21 +436,38 @@ fn run_command_with_timeout(
             }
             Err(e) => {
                 kill_process_tree(&mut child);
-                return Err(EngineError::Message(format!("等待命令失败 ({program}): {e}")));
+                return Err(EngineError::Message(format!(
+                    "等待命令失败 ({program}): {e}"
+                )));
             }
         }
     };
 
     let code = status.code().unwrap_or(1);
-    let stdout = String::from_utf8_lossy(&fs::read(&output_files.stdout).unwrap_or_default()).to_string();
-    let stderr = String::from_utf8_lossy(&fs::read(&output_files.stderr).unwrap_or_default()).to_string();
+    let stdout =
+        String::from_utf8_lossy(&fs::read(&output_files.stdout).unwrap_or_default()).to_string();
+    let stderr =
+        String::from_utf8_lossy(&fs::read(&output_files.stderr).unwrap_or_default()).to_string();
     Ok((code, stdout, stderr))
 }
 
 #[cfg(all(test, unix))]
 mod command_tests {
-    use super::run_command;
+    use super::{
+        decode_base64_payload, rollback_directory_install, run_command, validate_base64_upload_len,
+        windows_script_timeout,
+    };
+    use std::fs;
+    use std::path::PathBuf;
     use std::time::{Duration, Instant};
+
+    fn test_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dream-skin-{label}-{}-{}",
+            std::process::id(),
+            super::now_millis()
+        ))
+    }
 
     #[test]
     fn command_return_does_not_wait_for_background_output_handles() {
@@ -435,6 +482,58 @@ mod command_tests {
         assert_eq!(stdout, "ready");
         assert_eq!(stderr, "warning");
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn failed_install_restores_previous_engine_directory() {
+        let root = test_root("rollback");
+        let target = root.join("engine");
+        let previous = root.join("engine.previous");
+        fs::create_dir_all(&target).expect("create new engine");
+        fs::create_dir_all(&previous).expect("create previous engine");
+        fs::write(target.join("marker"), "new").expect("write new marker");
+        fs::write(previous.join("marker"), "old").expect("write old marker");
+
+        rollback_directory_install(&target, &previous).expect("rollback should succeed");
+
+        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
+        assert!(!previous.exists());
+        fs::remove_dir_all(root).expect("remove test directory");
+    }
+
+    #[test]
+    fn base64_decoder_rejects_invalid_payload() {
+        let error = decode_base64_payload("not valid base64!", 1024).unwrap_err();
+        assert!(error.to_string().contains("Base64 解码失败"));
+    }
+
+    #[test]
+    fn base64_decoder_rejects_oversized_payload_before_decoding() {
+        let max_bytes: usize = 16 * 1024 * 1024;
+        let max_chars = max_bytes.div_ceil(3) * 4;
+        assert!(validate_base64_upload_len(max_chars, max_bytes).is_ok());
+        let error = validate_base64_upload_len(max_chars + 1, max_bytes).unwrap_err();
+        assert_eq!(error.to_string(), "图片超过 16MB");
+    }
+
+    #[test]
+    fn windows_scripts_have_action_specific_timeouts() {
+        assert_eq!(
+            windows_script_timeout("app-pause.ps1"),
+            Duration::from_secs(45)
+        );
+        assert_eq!(
+            windows_script_timeout("start-dream-skin.ps1"),
+            Duration::from_secs(15 * 60)
+        );
+        assert_eq!(
+            windows_script_timeout("app-import-image.ps1"),
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            windows_script_timeout("restore-dream-skin.ps1"),
+            Duration::from_secs(15 * 60)
+        );
     }
 }
 
@@ -528,7 +627,8 @@ fn run_windows_script(script_name: &str, args: &[&str]) -> EngineResult<ActionRe
     argv.extend_from_slice(args);
     let started_at = now_millis();
     write_windows_action_log("script-start", script_name, args, None, "", "", 0);
-    let (code, stdout, stderr) = match run_command("powershell.exe", &argv) {
+    let timeout = windows_script_timeout(script_name);
+    let (code, stdout, stderr) = match run_command_with_timeout("powershell.exe", &argv, timeout) {
         Ok(output) => output,
         Err(error) => {
             write_windows_action_log(
@@ -981,88 +1081,7 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     })
 }
 
-/// Remove leftover duplicates from an older double-save import path:
-/// `load-image-theme-macos.sh` wrote `img-*` while the app also wrote `custom-*`
-/// for the same upload. Keep the `img-*` pack when name + image size match.
-fn cleanup_legacy_double_save_duplicates() {
-    let Ok(root) = themes_root() else {
-        return;
-    };
-    if !root.is_dir() {
-        return;
-    }
-
-    #[derive(Clone)]
-    struct Pack {
-        id: String,
-        name: String,
-        size: u64,
-    }
-
-    let mut packs: Vec<Pack> = Vec::new();
-    let Ok(entries) = fs::read_dir(&root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let id = entry.file_name().to_string_lossy().to_string();
-        if !(id.starts_with("img-") || id.starts_with("custom-")) {
-            continue;
-        }
-        let theme_json = entry.path().join("theme.json");
-        let Ok(theme) = read_json_file(&theme_json) else {
-            continue;
-        };
-        let name = read_json_field(&theme, "name").unwrap_or_else(|| id.clone());
-        let image_name =
-            read_json_field(&theme, "image").unwrap_or_else(|| "background.jpg".into());
-        let mut image_path = entry
-            .path()
-            .join(Path::new(&image_name).file_name().unwrap_or_default());
-        if !image_path.is_file() {
-            for fallback in ["background.jpg", "dream-reference.jpg"] {
-                let candidate = entry.path().join(fallback);
-                if candidate.is_file() {
-                    image_path = candidate;
-                    break;
-                }
-            }
-        }
-        let Ok(meta) = fs::metadata(&image_path) else {
-            continue;
-        };
-        packs.push(Pack {
-            id,
-            name,
-            size: meta.len(),
-        });
-    }
-
-    for pack in &packs {
-        if !pack.id.starts_with("custom-") {
-            continue;
-        }
-        let has_img_twin = packs.iter().any(|other| {
-            other.id.starts_with("img-")
-                && other.name == pack.name
-                && other.size == pack.size
-                && other.id != pack.id
-        });
-        if !has_img_twin {
-            continue;
-        }
-        let dest = root.join(&pack.id);
-        // Only remove known theme packs under themes root.
-        if dest.starts_with(&root) && dest.is_dir() {
-            let _ = fs::remove_dir_all(&dest);
-        }
-    }
-}
-
 pub fn list_themes() -> EngineResult<Vec<ThemeSummary>> {
-    cleanup_legacy_double_save_duplicates();
     let root = themes_root()?;
     if !root.is_dir() {
         return Ok(vec![]);
@@ -1114,6 +1133,34 @@ pub fn list_themes() -> EngineResult<Vec<ThemeSummary>> {
         _ => a.name.cmp(&b.name),
     });
     Ok(themes)
+}
+
+fn rollback_directory_install(target: &Path, previous: &Path) -> EngineResult<()> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| EngineError::Message("引擎安装路径无效".into()))?;
+    let failed = parent.join(format!(
+        "codex-dream-skin-studio.failed.{}",
+        std::process::id()
+    ));
+    if failed.exists() {
+        fs::remove_dir_all(&failed)?;
+    }
+    if target.exists() {
+        fs::rename(target, &failed)?;
+    }
+    if previous.exists() {
+        if let Err(error) = fs::rename(previous, target) {
+            if failed.exists() {
+                let _ = fs::rename(&failed, target);
+            }
+            return Err(EngineError::Message(format!("恢复旧引擎失败: {error}")));
+        }
+    }
+    if failed.exists() {
+        fs::remove_dir_all(failed)?;
+    }
+    Ok(())
 }
 
 pub fn theme_preview(id: &str) -> EngineResult<String> {
@@ -1208,13 +1255,9 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
             }
             return Err(EngineError::Message(format!("安装引擎失败: {error}")));
         }
-        if previous.exists() {
-            let _ = fs::remove_dir_all(&previous);
-        }
-
         let script = target.join("scripts/install-dream-skin-macos.sh");
         let script_str = script.to_string_lossy().to_string();
-        let (code, stdout, stderr) = run_command(
+        let command_result = run_command(
             "/bin/bash",
             &[
                 script_str.as_str(),
@@ -1224,11 +1267,26 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
                 "--port",
                 "9341",
             ],
-        )?;
+        );
+        let (code, stdout, stderr) = match command_result {
+            Ok(output) => output,
+            Err(error) => {
+                rollback_directory_install(&target, &previous)
+                    .map_err(|rollback| EngineError::Message(format!("{error}; {rollback}")))?;
+                return Err(error);
+            }
+        };
         let mut result = summarize(code, &stdout, &stderr);
-        if result.ok {
-            result.message = format!("引擎已安装到 {}\n{}", target.display(), result.message);
+        if !result.ok {
+            if let Err(error) = rollback_directory_install(&target, &previous) {
+                result.message = format!("{}\n旧引擎恢复失败：{error}", result.message);
+            }
+            return Ok(result);
         }
+        if previous.exists() {
+            let _ = fs::remove_dir_all(&previous);
+        }
+        result.message = format!("引擎已安装到 {}\n{}", target.display(), result.message);
         return Ok(result);
     }
 
@@ -1241,7 +1299,7 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
     recursive_copy(&source, &skill_root)?;
     let install = skill_root.join("scripts/install-dream-skin.ps1");
     let install_str = install.to_string_lossy().to_string();
-    let (code, stdout, stderr) = run_command(
+    let (code, stdout, stderr) = run_command_with_timeout(
         "powershell.exe",
         &[
             "-NoProfile",
@@ -1251,26 +1309,8 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
             install_str.as_str(),
             "-NoShortcuts",
         ],
+        Duration::from_secs(180),
     )?;
-    // Ensure app helper scripts exist in managed engine after installer copy.
-    if let Ok(engine) = engine_root() {
-        let helpers = [
-            "app-switch-theme.ps1",
-            "app-import-image.ps1",
-            "app-pause.ps1",
-        ];
-        for helper in helpers {
-            let from = source.join("scripts").join(helper);
-            let to = engine.join("scripts").join(helper);
-            if from.is_file() {
-                let _ = fs::copy(&from, &to);
-            }
-        }
-        let _ = fs::copy(
-            source.join("APP_ENGINE_VERSION"),
-            engine.join("APP_ENGINE_VERSION"),
-        );
-    }
     let mut result = summarize(code, &stdout, &stderr);
     if result.ok {
         result.message = format!(
@@ -1315,6 +1355,9 @@ pub fn pause_skin(app: Option<&AppHandle>) -> EngineResult<ActionResult> {
 
 pub fn restore_skin(app: &AppHandle) -> EngineResult<ActionResult> {
     if cfg!(target_os = "windows") {
+        if engine_installed() {
+            sync_windows_live_runtime(app, &["scripts/restore-dream-skin.ps1"])?;
+        }
         run_windows_script(
             "restore-dream-skin.ps1",
             &["-RestoreBaseTheme", "-PromptRestart"],
@@ -1444,7 +1487,9 @@ fn safe_accent_color(value: Option<&str>) -> EngineResult<Option<String>> {
     };
     let valid = raw.len() == 7
         && raw.starts_with('#')
-        && raw[1..].chars().all(|character| character.is_ascii_hexdigit());
+        && raw[1..]
+            .chars()
+            .all(|character| character.is_ascii_hexdigit());
     if !valid {
         return Err(EngineError::Message(
             "强调色必须是六位十六进制颜色，例如 #e08a91".into(),
@@ -1489,7 +1534,6 @@ fn latest_imported_theme_id() -> Option<String> {
     }
     best.map(|(_, id)| id)
 }
-
 
 pub fn resolve_theme_image_path(theme_id: &str) -> EngineResult<String> {
     assert_safe_theme_id(theme_id)?;
@@ -1539,12 +1583,17 @@ pub fn resolve_theme_image_path(theme_id: &str) -> EngineResult<String> {
                 .and_then(|v| v.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "heic" | "tif" | "tiff") {
+            if matches!(
+                ext.as_str(),
+                "jpg" | "jpeg" | "png" | "webp" | "heic" | "tif" | "tiff"
+            ) {
                 return Ok(path.display().to_string());
             }
         }
     }
-    Err(EngineError::Message("主题图片缺失，请重新选择图片后应用".into()))
+    Err(EngineError::Message(
+        "主题图片缺失，请重新选择图片后应用".into(),
+    ))
 }
 
 pub fn import_image_theme(
@@ -1576,8 +1625,28 @@ pub fn import_image_theme(
     if meta.len() == 0 {
         return Err(EngineError::Message("图片为空".into()));
     }
-    if meta.len() > 50 * 1024 * 1024 {
-        return Err(EngineError::Message("图片超过 50MB".into()));
+    let max_bytes = max_import_image_bytes();
+    if meta.len() > max_bytes as u64 {
+        return Err(EngineError::Message(format!(
+            "图片超过 {}MB",
+            max_bytes / (1024 * 1024)
+        )));
+    }
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let supported = if cfg!(target_os = "windows") {
+        matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp")
+    } else {
+        matches!(
+            extension.as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "heic" | "tif" | "tiff"
+        )
+    };
+    if !supported {
+        return Err(EngineError::Message("当前系统不支持该图片格式".into()));
     }
 
     let fallback_name = path
@@ -1600,11 +1669,7 @@ pub fn import_image_theme(
     let card_size = options.card_size.as_deref().unwrap_or("balanced");
     let focus_x = safe_unit_value(options.focus_x, "图片水平位置")?;
     let focus_y = safe_unit_value(options.focus_y, "图片垂直位置")?;
-    let hero_title = safe_theme_text(
-        options.hero_title.as_deref(),
-        "我们今天来构建什么？",
-        60,
-    );
+    let hero_title = safe_theme_text(options.hero_title.as_deref(), "我们今天来构建什么？", 60);
     let hero_subtitle = safe_theme_text(
         options.hero_subtitle.as_deref(),
         "和你的灵感一起，把想法写成代码。",
@@ -1754,34 +1819,77 @@ pub fn import_image_theme(
     Ok(result)
 }
 
+fn prune_stale_upload_files(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let stale = entry
+            .metadata()
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.elapsed().ok())
+            .map(|age| age > Duration::from_secs(24 * 60 * 60))
+            .unwrap_or(false);
+        if stale {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 pub fn save_upload_bytes(bytes: &[u8], file_name: &str) -> EngineResult<String> {
     if bytes.is_empty() {
         return Err(EngineError::Message("图片为空".into()));
     }
-    if bytes.len() > 50 * 1024 * 1024 {
-        return Err(EngineError::Message("图片超过 50MB".into()));
+    let max_bytes = max_import_image_bytes();
+    if bytes.len() > max_bytes {
+        return Err(EngineError::Message(format!(
+            "图片超过 {}MB",
+            max_bytes / (1024 * 1024)
+        )));
     }
     let ext = Path::new(file_name)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")
         .to_ascii_lowercase();
-    let allowed = ["jpg", "jpeg", "png", "webp", "heic", "tif", "tiff"];
+    let allowed = if cfg!(target_os = "windows") {
+        &["jpg", "jpeg", "png", "webp"][..]
+    } else {
+        &["jpg", "jpeg", "png", "webp", "heic", "tif", "tiff"][..]
+    };
     if !allowed.contains(&ext.as_str()) {
         return Err(EngineError::Message("不支持的图片格式".into()));
     }
-    let uploads = state_root()?.join("tool-uploads");
+    // Older builds kept full uploads in application state indefinitely.
+    if let Ok(root) = state_root() {
+        prune_stale_upload_files(&root.join("tool-uploads"));
+    }
+    let uploads = std::env::temp_dir().join("dream-skin-uploads");
     fs::create_dir_all(&uploads)?;
+    prune_stale_upload_files(&uploads);
     let path = uploads.join(format!("{}-{}.{}", now_millis(), std::process::id(), ext));
     fs::write(&path, bytes)?;
     Ok(path.display().to_string())
 }
 
-pub fn decode_base64_payload(data: &str) -> EngineResult<Vec<u8>> {
+pub fn decode_base64_payload(data: &str, max_bytes: usize) -> EngineResult<Vec<u8>> {
     let trimmed = data
         .strip_prefix("data:")
         .and_then(|rest| rest.split_once(',').map(|(_, b64)| b64))
-        .unwrap_or(data);
-    B64.decode(trimmed.trim())
-        .map_err(|e| EngineError::Message(format!("Base64 解码失败: {e}")))
+        .unwrap_or(data)
+        .trim();
+    validate_base64_upload_len(trimmed.len(), max_bytes)?;
+    let bytes = B64
+        .decode(trimmed)
+        .map_err(|e| EngineError::Message(format!("Base64 解码失败: {e}")))?;
+    if bytes.len() > max_bytes {
+        return Err(EngineError::Message(format!(
+            "图片超过 {}MB",
+            max_bytes / (1024 * 1024)
+        )));
+    }
+    Ok(bytes)
 }

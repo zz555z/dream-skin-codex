@@ -232,6 +232,8 @@ function isValidCdpPageTarget(item, port) {
   }
 }
 
+const CDP_HANDSHAKE_TIMEOUT_MS = 2500;
+
 class CdpSession {
   constructor(target, port) {
     this.target = target;
@@ -247,7 +249,7 @@ class CdpSession {
       const timeout = setTimeout(() => {
         try { this.ws.close(); } catch {}
         reject(new Error("CDP WebSocket open timed out"));
-      }, 5000);
+      }, CDP_HANDSHAKE_TIMEOUT_MS);
       this.ws.addEventListener("open", () => { clearTimeout(timeout); resolve(); }, { once: true });
       this.ws.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("CDP WebSocket open failed")); }, { once: true });
     });
@@ -261,8 +263,10 @@ class CdpSession {
       }
       this.pending.clear();
     });
-    await this.send("Runtime.enable");
-    await this.send("Page.enable");
+    await Promise.all([
+      this.send("Runtime.enable", {}, CDP_HANDSHAKE_TIMEOUT_MS),
+      this.send("Page.enable", {}, CDP_HANDSHAKE_TIMEOUT_MS),
+    ]);
     return this;
   }
 
@@ -290,14 +294,14 @@ class CdpSession {
     this.listeners.set(method, listeners);
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 10000) {
     if (this.closed) return Promise.reject(new Error("CDP session is closed"));
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`CDP command timed out: ${method}`));
-      }, 10000);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timeout });
       try {
         this.ws.send(JSON.stringify({ id, method, params }));
@@ -309,13 +313,13 @@ class CdpSession {
     });
   }
 
-  async evaluate(expression) {
+  async evaluate(expression, timeoutMs = 10000) {
     const result = await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
       userGesture: false,
-    });
+    }, timeoutMs);
     if (result.exceptionDetails) {
       const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
       throw new Error(`Renderer evaluation failed: ${detail}`);
@@ -616,21 +620,24 @@ async function connectCodexTargets(port, timeoutMs, expectedBrowserId) {
   while (Date.now() < deadline) {
     try {
       const targets = await listAppTargets(port, expectedBrowserId);
-      const connected = [];
-      for (const target of targets) {
+      const attempts = await Promise.all(targets.map(async (target) => {
         let session;
         try {
           session = await connectTarget(target, port);
           const probe = await probeSession(session);
-          if (probe?.codex) connected.push({ target, session, probe });
-          else session.close();
+          if (probe?.codex) return { connected: { target, session, probe }, error: null };
+          session.close();
+          return { connected: null, error: null };
         } catch (error) {
           session?.close();
-          lastError = error;
+          return { connected: null, error };
         }
-      }
+      }));
+      const connected = attempts.flatMap((attempt) =>
+        attempt.connected ? [attempt.connected] : []);
       if (connected.length) return connected;
-      lastError = new Error("No page matched the expected Codex shell markers");
+      lastError = attempts.findLast((attempt) => attempt.error)?.error
+        ?? new Error("No page matched the expected Codex shell markers");
     } catch (error) {
       if (error instanceof CdpIdentityMismatchError) throw error;
       lastError = error;
@@ -1128,9 +1135,9 @@ async function runOneShot(options) {
     for (const { session } of connected) session.close();
   }
   console.log(JSON.stringify({ mode: options.mode, port: options.port, targets: results }, null, 2));
-  const failed = results.length === 0 || results.some((item) =>
-    item.error || (options.mode === "remove" ? item.result !== true : !item.result?.pass));
-  if (failed) process.exitCode = 2;
+  const succeeded = results.some((item) =>
+    !item.error && (options.mode === "remove" ? item.result === true : item.result?.pass));
+  if (!succeeded) process.exitCode = 2;
 }
 
 async function runWatch(options) {

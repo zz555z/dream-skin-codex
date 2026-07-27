@@ -51,3 +51,33 @@ jobs:
       - name: Check Rust crate
         working-directory: src-tauri
         run: cargo check
+
+  windows-check:
+    name: Windows Check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck frontend
+        run: npm run check
+
+      - name: Check Windows engine scripts
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows-engine.ps1
+
+      - name: Test Rust crate on Windows
+        working-directory: src-tauri
+        run: cargo test

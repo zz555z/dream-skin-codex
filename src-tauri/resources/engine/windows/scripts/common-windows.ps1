@@ -11,7 +11,7 @@ function Enter-DreamSkinOperationLock {
   }
   if (-not $acquired) {
     $mutex.Dispose()
-    throw 'Another Codex Dream Skin install, start, restore, or verify operation is already running.'
+    throw 'Another Codex Dream Skin operation is already running.'
   }
   return $mutex
 }
@@ -19,6 +19,16 @@ function Enter-DreamSkinOperationLock {
 function Exit-DreamSkinOperationLock {
   param([Parameter(Mandatory = $true)][System.Threading.Mutex]$Mutex)
   try { $Mutex.ReleaseMutex() } finally { $Mutex.Dispose() }
+}
+
+function Invoke-DreamSkinLockedOperation {
+  param([Parameter(Mandatory = $true)][scriptblock]$Action)
+  $operationLock = Enter-DreamSkinOperationLock
+  try {
+    & $Action
+  } finally {
+    Exit-DreamSkinOperationLock -Mutex $operationLock
+  }
 }
 
 function Assert-DreamSkinPort {

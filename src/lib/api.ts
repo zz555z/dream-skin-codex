@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ActionResult, ImportPayload, StatusSnapshot, ThemeSummary } from "../types";
 
+export const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
+export const MAX_WINDOWS_IMAGE_BYTES = 16 * 1024 * 1024;
+
 export const api = {
   getStatus: () => invoke<StatusSnapshot>("get_app_status"),
   getThemes: () => invoke<ThemeSummary[]>("get_themes"),
@@ -19,13 +22,22 @@ export const api = {
     invoke<ActionResult>("pick_and_import_theme", { payload }),
 };
 
-export async function fileToBase64(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+export async function fileToBase64(file: File, maxBytes = MAX_IMAGE_BYTES): Promise<string> {
+  if (file.size > maxBytes) {
+    throw new Error(`图片超过 ${Math.round(maxBytes / 1024 / 1024)}MB`);
   }
-  return btoa(binary);
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("无法读取图片"));
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const comma = result.indexOf(",");
+      if (comma < 0) {
+        reject(new Error("无法编码图片"));
+        return;
+      }
+      resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(file);
+  });
 }

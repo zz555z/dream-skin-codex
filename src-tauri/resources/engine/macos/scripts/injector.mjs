@@ -228,6 +228,8 @@ function isValidCdpPageTarget(item, port) {
   }
 }
 
+const CDP_HANDSHAKE_TIMEOUT_MS = 2500;
+
 class CdpSession {
   constructor(target, port) {
     this.target = target;
@@ -243,7 +245,7 @@ class CdpSession {
       const timeout = setTimeout(() => {
         try { this.ws.close(); } catch {}
         reject(new Error("CDP WebSocket open timed out"));
-      }, 5000);
+      }, CDP_HANDSHAKE_TIMEOUT_MS);
       this.ws.addEventListener("open", () => { clearTimeout(timeout); resolve(); }, { once: true });
       this.ws.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("CDP WebSocket open failed")); }, { once: true });
     });
@@ -257,8 +259,10 @@ class CdpSession {
       }
       this.pending.clear();
     });
-    await this.send("Runtime.enable");
-    await this.send("Page.enable");
+    await Promise.all([
+      this.send("Runtime.enable", {}, CDP_HANDSHAKE_TIMEOUT_MS),
+      this.send("Page.enable", {}, CDP_HANDSHAKE_TIMEOUT_MS),
+    ]);
     return this;
   }
 
@@ -437,21 +441,24 @@ async function connectCodexTargets(port, timeoutMs) {
   while (Date.now() < deadline) {
     try {
       const targets = await listAppTargets(port);
-      const connected = [];
-      for (const target of targets) {
+      const attempts = await Promise.all(targets.map(async (target) => {
         let session;
         try {
           session = await connectTarget(target, port);
           const probe = await probeSession(session);
-          if (probe?.codex) connected.push({ target, session, probe });
-          else session.close();
+          if (probe?.codex) return { connected: { target, session, probe }, error: null };
+          session.close();
+          return { connected: null, error: null };
         } catch (error) {
           session?.close();
-          lastError = error;
+          return { connected: null, error };
         }
-      }
+      }));
+      const connected = attempts.flatMap((attempt) =>
+        attempt.connected ? [attempt.connected] : []);
       if (connected.length) return connected;
-      lastError = new Error("No page matched the expected ChatGPT shell markers");
+      lastError = attempts.findLast((attempt) => attempt.error)?.error
+        ?? new Error("No page matched the expected ChatGPT shell markers");
     } catch (error) {
       lastError = error;
     }
@@ -1177,9 +1184,9 @@ async function runOneShot(options) {
   }
 
   console.log(JSON.stringify({ mode: options.mode, version: SKIN_VERSION, port: options.port, targets: results }, null, 2));
-  const failed = results.length === 0 || results.some((item) =>
-    item.error || (options.mode === "remove" ? item.result !== true : !item.result?.pass));
-  if (failed) process.exitCode = 2;
+  const succeeded = results.some((item) =>
+    !item.error && (options.mode === "remove" ? item.result === true : item.result?.pass));
+  if (!succeeded) process.exitCode = 2;
 }
 
 export function earlyPayloadFor(payload, revision) {

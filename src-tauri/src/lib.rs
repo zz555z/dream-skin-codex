@@ -2,12 +2,14 @@ mod engine;
 
 use engine::{
     apply_skin, decode_base64_payload, delete_theme, get_status, import_image_theme,
-    resolve_theme_image_path, theme_preview,
-    initialize_windows_diagnostics, install_engine, list_themes, pause_skin, preview_image,
-    restore_skin, save_upload_bytes, set_windows_diagnostics, switch_theme, ActionResult,
-    ImportOptions, StatusSnapshot, ThemeSummary,
+    initialize_windows_diagnostics, install_engine, list_themes, max_import_image_bytes,
+    pause_skin, preview_image, resolve_theme_image_path, restore_skin, save_upload_bytes,
+    set_windows_diagnostics, switch_theme, theme_preview, ActionResult, ImportOptions,
+    StatusSnapshot, ThemeSummary,
 };
 use serde::Deserialize;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -15,6 +17,22 @@ use tauri_plugin_dialog::DialogExt;
 
 struct AppState {
     busy: AtomicBool,
+}
+
+struct TemporaryUpload {
+    path: PathBuf,
+}
+
+impl TemporaryUpload {
+    fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+}
+
+impl Drop for TemporaryUpload {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 impl AppState {
@@ -53,9 +71,10 @@ async fn get_app_status(
     state: State<'_, Arc<AppState>>,
 ) -> Result<StatusSnapshot, String> {
     let busy = state.busy.load(Ordering::SeqCst);
-    let result = tauri::async_runtime::spawn_blocking(move || get_status(&app).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| format!("后台任务异常: {e}"))?;
+    let result =
+        tauri::async_runtime::spawn_blocking(move || get_status(&app).map_err(|e| e.to_string()))
+            .await
+            .map_err(|e| format!("后台任务异常: {e}"))?;
     let mut status = result?;
     status.busy = busy;
     Ok(status)
@@ -183,17 +202,21 @@ async fn import_dream_theme(
     payload: ImportPayload,
 ) -> Result<ActionResult, String> {
     run_blocking(&state, move || {
+        let mut temporary_upload = None;
         let path = if let Some(path) = payload.path.filter(|p| !p.is_empty()) {
             path
         } else if let Some(theme_id) = payload.theme_id.filter(|p| !p.is_empty()) {
             resolve_theme_image_path(&theme_id).map_err(|e| e.to_string())?
         } else if let (Some(b64), Some(file_name)) = (payload.file_base64, payload.file_name) {
-            let bytes = decode_base64_payload(&b64).map_err(|e| e.to_string())?;
-            save_upload_bytes(&bytes, &file_name).map_err(|e| e.to_string())?
+            let bytes =
+                decode_base64_payload(&b64, max_import_image_bytes()).map_err(|e| e.to_string())?;
+            let path = save_upload_bytes(&bytes, &file_name).map_err(|e| e.to_string())?;
+            temporary_upload = Some(TemporaryUpload::new(&path));
+            path
         } else {
             return Err("未提供图片".into());
         };
-        import_image_theme(
+        let result = import_image_theme(
             Some(&app),
             &path,
             ImportOptions {
@@ -215,7 +238,9 @@ async fn import_dream_theme(
                 apply_now: payload.apply_now,
             },
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+        drop(temporary_upload);
+        result
     })
     .await
 }
@@ -307,4 +332,22 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Dream Skin app");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TemporaryUpload;
+    use std::fs;
+
+    #[test]
+    fn temporary_upload_removes_file_on_drop() {
+        let path =
+            std::env::temp_dir().join(format!("dream-skin-upload-guard-{}", std::process::id()));
+        fs::write(&path, b"temporary").expect("create temporary upload");
+        {
+            let _upload = TemporaryUpload::new(&path);
+            assert!(path.is_file());
+        }
+        assert!(!path.exists());
+    }
 }

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { api, fileToBase64 } from "./lib/api";
+import {
+  api,
+  fileToBase64,
+  MAX_IMAGE_BYTES,
+  MAX_WINDOWS_IMAGE_BYTES,
+} from "./lib/api";
 import type { StatusSnapshot, ThemeSummary } from "./types";
 import { localizeErrorMessage } from "./lib/localizeError";
 import { BACKGROUND_AI_PROMPT_ZH } from "./lib/backgroundPrompt";
@@ -10,6 +15,7 @@ type SelectedImage =
   | { source: "path"; path: string; name: string; size?: number };
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|heic|tif{1,2})$/i;
+const WINDOWS_IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
 const ACTION_TIMEOUT_MS = 45_000;
 const DEFAULT_HERO_TITLE = "我们今天来构建什么？";
 const DEFAULT_HERO_SUBTITLE = "和你的灵感一起，把想法写成代码。";
@@ -62,6 +68,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 const STATUS_TIMEOUT_MS = 4000;
 const THEMES_TIMEOUT_MS = 8000;
 const PREVIEW_TIMEOUT_MS = 6000;
+const PREVIEW_CONCURRENCY = 4;
 
 
 function fileNameFromPath(path: string): string {
@@ -135,6 +142,9 @@ export default function App() {
   const dropzoneRef = useRef<HTMLLabelElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const diagnosticClicksRef = useRef(0);
+  const actionInFlightRef = useRef(false);
+  const toastTimerRef = useRef<number | null>(null);
+  const themePreviewCacheRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!advancedOpen) return;
@@ -212,10 +222,20 @@ export default function App() {
 
   const installed = Boolean(status?.installed);
   const canInstall = Boolean(status?.canInstall);
+  const isWindows = status?.platform === "windows";
+  const selectedImageLimit = isWindows ? MAX_WINDOWS_IMAGE_BYTES : MAX_IMAGE_BYTES;
 
   const showToast = useCallback((message: string, kind: "ok" | "err" = "ok") => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     setToast({ message, kind });
-    window.setTimeout(() => setToast(null), 1000);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 1000);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
   }, []);
 
   const closeConfirmDialog = useCallback(() => {
@@ -298,23 +318,27 @@ export default function App() {
 
   const loadThemePreviews = useCallback(async (items: ThemeSummary[]) => {
     if (IS_BROWSER_PREVIEW || !items.length) return;
-    const pending = items.filter((theme) => !theme.previewDataUrl).slice(0, 12);
-    for (const theme of pending) {
-      try {
-        const previewDataUrl = await withTimeout(
-          api.previewTheme(theme.id),
-          PREVIEW_TIMEOUT_MS,
-        );
-        setThemes((current) =>
-          current.map((item) =>
-            item.id === theme.id && !item.previewDataUrl
-              ? { ...item, previewDataUrl }
-              : item,
-          ),
-        );
-      } catch {
-        // Preview is best-effort; keep metadata card usable without image.
-      }
+    const pending = items.filter((theme) => !theme.previewDataUrl);
+    for (let index = 0; index < pending.length; index += PREVIEW_CONCURRENCY) {
+      const batch = pending.slice(index, index + PREVIEW_CONCURRENCY);
+      await Promise.all(batch.map(async (theme) => {
+        try {
+          const previewDataUrl = await withTimeout(
+            api.previewTheme(theme.id),
+            PREVIEW_TIMEOUT_MS,
+          );
+          themePreviewCacheRef.current.set(theme.id, previewDataUrl);
+          setThemes((current) =>
+            current.map((item) =>
+              item.id === theme.id && !item.previewDataUrl
+                ? { ...item, previewDataUrl }
+                : item,
+            ),
+          );
+        } catch {
+          // Preview is best-effort; keep metadata card usable without image.
+        }
+      }));
     }
   }, []);
 
@@ -330,8 +354,17 @@ export default function App() {
       if (nextStatus.installed) {
         try {
           const nextThemes = await withTimeout(api.getThemes(), THEMES_TIMEOUT_MS);
-          setThemes(nextThemes);
-          void loadThemePreviews(nextThemes);
+          const knownIds = new Set(nextThemes.map((theme) => theme.id));
+          for (const id of themePreviewCacheRef.current.keys()) {
+            if (!knownIds.has(id)) themePreviewCacheRef.current.delete(id);
+          }
+          const themesWithCachedPreviews = nextThemes.map((theme) => ({
+            ...theme,
+            previewDataUrl:
+              theme.previewDataUrl ?? themePreviewCacheRef.current.get(theme.id) ?? null,
+          }));
+          setThemes(themesWithCachedPreviews);
+          void loadThemePreviews(themesWithCachedPreviews);
         } catch {
           setThemes([]);
         }
@@ -383,7 +416,8 @@ export default function App() {
       action: () => Promise<{ ok: boolean; message: string }>,
       options?: { successText?: string; overlayText?: string },
     ) => {
-      if (busy) return;
+      if (actionInFlightRef.current) return;
+      actionInFlightRef.current = true;
       const overlayText = options?.overlayText || `${label}中…`;
       setBusy(true);
       setBusyLabel(overlayText);
@@ -391,8 +425,14 @@ export default function App() {
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
       });
+      let slowTimer: number | undefined;
       try {
-        const result = await withTimeout(action(), ACTION_TIMEOUT_MS);
+        slowTimer = window.setTimeout(() => {
+          setBusyLabel("后台仍在处理，请勿重复操作…");
+        }, ACTION_TIMEOUT_MS);
+        // Engine commands enforce their own process timeout. Keep the UI locked
+        // until IPC really settles so a soft timeout cannot enable a second action.
+        const result = await action();
         const successText = options?.successText || "操作成功";
         const message = result.ok
           ? successText
@@ -402,6 +442,8 @@ export default function App() {
         const message = error instanceof Error ? error.message : String(error);
         showToast(localizeErrorMessage(message), "err");
       } finally {
+        if (slowTimer !== undefined) window.clearTimeout(slowTimer);
+        actionInFlightRef.current = false;
         setBusy(false);
         setBusyLabel("处理中…");
         // Do not keep the blocking overlay up while the theme library reloads
@@ -409,7 +451,7 @@ export default function App() {
         void refresh();
       }
     },
-    [busy, refresh, showToast],
+    [refresh, showToast],
   );
 
   const formFields = useMemo(
@@ -472,7 +514,7 @@ export default function App() {
             })
           : await api.importTheme({
               ...base,
-              fileBase64: await fileToBase64(current.file),
+              fileBase64: await fileToBase64(current.file, selectedImageLimit),
               fileName: current.file.name,
             });
       if (result.ok) {
@@ -481,7 +523,7 @@ export default function App() {
       }
       return result;
     },
-    [formFields, selectedImage],
+    [formFields, selectedImage, selectedImageLimit],
   );
 
 
@@ -495,13 +537,24 @@ export default function App() {
         showToast("请拖入图片文件（png/jpg/webp/heic/tiff）", "err");
         return;
       }
+      if (isWindows && !WINDOWS_IMAGE_EXT.test(next.name)) {
+        showToast("Windows 仅支持 PNG、JPEG 和 WebP 图片", "err");
+        return;
+      }
+      if (next.source === "file" && next.size > selectedImageLimit) {
+        showToast(
+          `图片超过 ${Math.round(selectedImageLimit / 1024 / 1024)}MB，请压缩后重试`,
+          "err",
+        );
+        return;
+      }
       setSelectedImage(next);
       // 主题名为空时，自动填入图片名；用户已填写则不覆盖
       if (!themeName.trim()) {
         setThemeName(themeNameFromImage(next.name));
       }
     },
-    [showToast, themeName],
+    [isWindows, selectedImageLimit, showToast, themeName],
   );
 
   useEffect(() => {
@@ -869,7 +922,7 @@ export default function App() {
           >
             <input
               type="file"
-              accept="image/*,.heic,.tif,.tiff"
+              accept={isWindows ? ".png,.jpg,.jpeg,.webp" : "image/*,.heic,.tif,.tiff"}
               hidden
               disabled={!installed}
               onChange={(event) => {
@@ -905,7 +958,9 @@ export default function App() {
                   ? selectedImage.source === "file"
                     ? `${Math.round(selectedImage.size / 1024)} KB · 点下方按钮应用`
                     : "已拖入本地图片 · 点下方按钮应用"
-                  : "建议 2560×1440 · 无侧栏/按钮/文字 · ≤50MB"}
+                  : isWindows
+                    ? "建议 2560×1440 · PNG/JPEG/WebP · ≤16MB"
+                    : "建议 2560×1440 · 无侧栏/按钮/文字 · ≤50MB"}
               </span>
             </div>
           </label>

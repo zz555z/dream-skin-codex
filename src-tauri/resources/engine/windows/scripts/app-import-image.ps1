@@ -21,6 +21,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common-windows.ps1')
 . (Join-Path $PSScriptRoot 'theme-windows.ps1')
+Invoke-DreamSkinLockedOperation -Action {
 $StateRoot = Join-Path $env:LOCALAPPDATA 'CodexDreamSkin'
 $full = [System.IO.Path]::GetFullPath($ImagePath)
 if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "Image not found: $full" }
@@ -130,4 +131,5 @@ if (-not $NoApply) {
     Write-Warning $live.Message
     & (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting
   }
+}
 }
