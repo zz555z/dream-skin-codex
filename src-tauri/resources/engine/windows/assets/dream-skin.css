@@ -416,12 +416,17 @@ html.codex-dream-skin.dream-safe-center .dream-home > div:first-child > div:firs
 }
 
 html.codex-dream-skin .composer-surface-chrome {
+  overflow: visible !important;
   color: var(--dream-text) !important;
   border: 1px solid var(--dream-line) !important;
   border-radius: 18px !important;
   background: color-mix(in oklab, var(--dream-surface-raised) 95%, transparent) !important;
   box-shadow: 0 12px 34px color-mix(in oklab, var(--dream-accent) 8%, transparent) !important;
   backdrop-filter: blur(14px) saturate(1.06) !important;
+}
+
+html.codex-dream-skin .composer-surface-chrome::before {
+  content: none !important;
 }
 
 html.codex-dream-skin .ProseMirror {
@@ -592,19 +597,60 @@ html.codex-dream-skin.dream-art-wide .composer-surface-chrome::before {
 /* Current Codex builds render the home project picker in a hashed utility bar.
    Merge it with the composer so the bottom control reads as one surface. */
 html.codex-dream-skin .dream-home-utility {
+  top: 0 !important;
+  width: 100% !important;
+  margin-inline: 0 !important;
+  padding-inline: 18px !important;
   border: 1px solid var(--dream-line) !important;
   border-bottom: 0 !important;
   border-radius: 18px 18px 0 0 !important;
   background: var(--dream-immersive-composer) !important;
-  box-shadow: none !important;
+  box-shadow:
+    inset 1px 0 var(--dream-immersive-line),
+    inset -1px 0 var(--dream-immersive-line),
+    inset 0 1px var(--dream-immersive-line) !important;
+  backdrop-filter: blur(14px) saturate(1.06) !important;
 }
 
 html.codex-dream-skin .dream-home:has(.dream-home-utility) .composer-surface-chrome {
+  border: 0 !important;
   border-radius: 0 0 18px 18px !important;
   box-shadow: 0 10px 30px color-mix(in oklab, var(--dream-canvas) 20%, transparent),
     inset 1px 0 var(--dream-immersive-line),
     inset -1px 0 var(--dream-immersive-line),
     inset 0 -1px var(--dream-immersive-line) !important;
+}
+
+html.codex-dream-skin.dream-art-wide .dream-home-utility {
+  background: var(--dream-immersive-composer) !important;
+  box-shadow:
+    inset 1px 0 var(--dream-immersive-line),
+    inset -1px 0 var(--dream-immersive-line),
+    inset 0 1px var(--dream-immersive-line) !important;
+  backdrop-filter: none !important;
+}
+
+html.codex-dream-skin .dream-home-utility button,
+html.codex-dream-skin .composer-surface-chrome button:not([class~="bg-token-foreground"]) {
+  color: var(--dream-muted) !important;
+}
+
+html.codex-dream-skin .dream-home-utility button svg,
+html.codex-dream-skin .composer-surface-chrome button svg,
+html.codex-dream-skin .dream-home-utility button *,
+html.codex-dream-skin .composer-surface-chrome button:not([class~="bg-token-foreground"]) * {
+  color: currentColor !important;
+}
+
+html.codex-dream-skin .dream-home-utility button:hover,
+html.codex-dream-skin .composer-surface-chrome button:not([class~="bg-token-foreground"]):hover {
+  color: var(--dream-text) !important;
+  background: var(--dream-accent-soft) !important;
+}
+
+html.codex-dream-skin .composer-surface-chrome p.placeholder::after {
+  color: var(--dream-muted) !important;
+  opacity: 1 !important;
 }
 
 /* Plugins, scheduled tasks and search routes ship opaque sticky wrappers.

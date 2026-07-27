@@ -1484,6 +1484,14 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
   if (forcesHomeHeight) {
     throw new Error("Windows home layout must preserve the native viewport height");
   }
+  const composerContract = [
+    /\.composer-surface-chrome\s*\{[^}]*overflow\s*:\s*visible/s,
+    /\.dream-home-utility\s*\{[^}]*top\s*:\s*0[^}]*width\s*:\s*100%[^}]*margin-inline\s*:\s*0[^}]*padding-inline\s*:\s*18px/s,
+    /\.dream-home:has\(\.dream-home-utility\)\s+\.composer-surface-chrome\s*\{[^}]*border\s*:\s*0/s,
+  ];
+  if (composerContract.some((pattern) => !pattern.test(selfTestCss))) {
+    throw new Error("Windows home composer must preserve the native compact layout contract");
+  }
   console.log(JSON.stringify({ pass: true, version: SKIN_VERSION, test: "loopback-cdp-validation" }));
   } else if (options.mode === "check-payload") {
     const loaded = await loadPayload(options.themeDir);
