@@ -75,6 +75,16 @@ try {
   Assert-DreamSkinTest (Test-DreamSkinPaused -StateRoot $stateRoot) 'Pause marker was not written.'
   $null = Set-DreamSkinPaused -Paused $false -StateRoot $stateRoot
   Assert-DreamSkinTest (-not (Test-DreamSkinPaused -StateRoot $stateRoot)) 'Pause marker was not removed.'
+  Assert-DreamSkinTest (Test-Path -LiteralPath (Join-Path $stateRoot 'app-actions.log') -PathType Leaf) `
+    'Core Windows action log was not written by default.'
+
+  $failedState = Join-Path $stateRoot 'state.json'
+  Write-DreamSkinUtf8FileAtomically -Path $failedState -Content "{}`r`n"
+  $failedArchive = Archive-DreamSkinStateFile -Path $failedState -Reason failed
+  Assert-DreamSkinTest ($failedArchive -and (Test-Path -LiteralPath $failedArchive -PathType Leaf)) `
+    'Failed Windows state was not archived.'
+  Assert-DreamSkinTest ([System.IO.Path]::GetFileName($failedArchive).StartsWith('state.failed-')) `
+    'Failed Windows state archive name is incorrect.'
 
   Write-Host 'Windows engine checks passed.'
 } finally {

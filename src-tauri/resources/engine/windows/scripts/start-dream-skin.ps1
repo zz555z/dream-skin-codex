@@ -276,7 +276,12 @@ try {
         Write-Warning 'Startup rollback could not remove the partially applied live skin; reload or close Codex to clear it.'
       }
     }
-    if ($injectorStopped) { Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue }
+    if ($injectorStopped) {
+      $failedStatePath = Archive-DreamSkinStateFile -Path $StatePath -Reason failed
+      Write-DreamSkinDiagnosticEvent -Event 'start-failed-state-archived' -StateRoot $StateRoot -Data @{
+        path = $failedStatePath
+      }
+    }
     if ($launchedWithCdp) {
       try {
         Stop-DreamSkinCodex -Codex $codex -AllowForce

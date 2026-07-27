@@ -664,7 +664,7 @@ fn write_windows_action_log(
     stderr: &str,
     duration_ms: u128,
 ) {
-    if !windows_diagnostics_enabled() {
+    if !cfg!(target_os = "windows") {
         return;
     }
     let Ok(root) = state_root() else { return };
@@ -703,21 +703,6 @@ fn write_windows_action_log(
     }
 }
 
-fn windows_diagnostics_enabled() -> bool {
-    if !cfg!(target_os = "windows") {
-        return false;
-    }
-    if std::env::var("DREAM_SKIN_LOGS")
-        .map(|value| value == "1")
-        .unwrap_or(false)
-    {
-        return true;
-    }
-    state_root()
-        .map(|root| root.join("enable-logs").is_file())
-        .unwrap_or(false)
-}
-
 pub fn set_windows_diagnostics(enabled: bool) -> EngineResult<bool> {
     if !cfg!(target_os = "windows") {
         return Err(EngineError::Message("仅 Windows 支持诊断日志".into()));
@@ -736,13 +721,19 @@ pub fn set_windows_diagnostics(enabled: bool) -> EngineResult<bool> {
 /// Create a startup record so support can distinguish a new Windows build
 /// from an older installer even when no engine action has run yet.
 pub fn initialize_windows_diagnostics() {
-    if !windows_diagnostics_enabled() {
+    if !cfg!(target_os = "windows") {
         return;
     }
     let Ok(root) = state_root() else { return };
     if fs::create_dir_all(&root).is_err() {
         return;
     }
+    // Detailed Windows diagnostics are enabled by default. Keep the marker for
+    // compatibility with existing engine scripts and older installed engines.
+    let _ = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(root.join("enable-logs"));
     let path = root.join("app-actions.log");
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let record = serde_json::json!({

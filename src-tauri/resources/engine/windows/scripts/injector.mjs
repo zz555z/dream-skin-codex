@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,11 +16,7 @@ const OPERATION_UI_HOST_ID = "chatgpt-dream-skin-operation";
 const OPERATION_UI_REGISTRY_KEY = "__CHATGPT_DREAM_SKIN_OPERATION_UI__";
 const OPERATION_KINDS = new Set(["apply", "pause", "switch"]);
 const OPERATION_UI_STATES = new Set(["success", "error", "cancelled"]);
-const diagnosticsEnabled = process.env.DREAM_SKIN_LOGS === "1" || existsSync(
-  path.join(process.env.LOCALAPPDATA || "", "CodexDreamSkin", "enable-logs"),
-);
 function logDiagnostic(event, data = {}) {
-  if (!diagnosticsEnabled) return;
   console.log(`[dream-skin-diag] ${JSON.stringify({
     timestamp: new Date().toISOString(),
     pid: process.pid,
@@ -958,8 +953,7 @@ async function verifySession(session) {
     // the applied skin. Only use stable skin-owned markers for verification;
     // layout probes remain diagnostic data rather than failure conditions.
     result.pass = result.installed && result.version === result.expectedVersion &&
-      result.stylePresent && result.chromePresent &&
-      (!result.homeRoute || result.homePresent);
+      result.stylePresent && result.chromePresent;
     return result;
   })()`);
 }
@@ -1465,7 +1459,7 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
     throw new Error("Renderer payload version does not match the injector version");
   }
   const verificationSource = verifySession.toString();
-  if (/Boolean\(result\.(?:composer|sidebar)\)|result\.chromePointerEvents\s*===|result\.cards\.length/.test(verificationSource)) {
+  if (/Boolean\(result\.(?:composer|sidebar)\)|result\.chromePointerEvents\s*===|result\.cards\.length|result\.(?:homeRoute|homePresent)/.test(verificationSource)) {
     throw new Error("Skin verification must not depend on mutable Codex layout selectors");
   }
   console.log(JSON.stringify({ pass: true, version: SKIN_VERSION, test: "loopback-cdp-validation" }));

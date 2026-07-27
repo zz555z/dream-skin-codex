@@ -327,9 +327,6 @@ function Write-DreamSkinDiagnosticEvent {
     [hashtable]$Data = @{},
     [string]$StateRoot = (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin')
   )
-  $diagnosticsEnabled = ($env:DREAM_SKIN_LOGS -eq '1') -or
-    (Test-Path -LiteralPath (Join-Path $StateRoot 'enable-logs') -PathType Leaf)
-  if (-not $diagnosticsEnabled) { return }
   try {
     New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
     $path = Join-Path $StateRoot 'app-actions.log'
@@ -815,11 +812,14 @@ function Write-DreamSkinState {
 }
 
 function Archive-DreamSkinStateFile {
-  param([Parameter(Mandatory = $true)][string]$Path)
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [ValidateSet('stale', 'failed')][string]$Reason = 'stale'
+  )
   if (-not (Test-Path -LiteralPath $Path)) { return $null }
   $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
   $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
-  $archivePath = Join-Path $directory "state.stale-$stamp-$([guid]::NewGuid().ToString('N')).json"
+  $archivePath = Join-Path $directory "state.$Reason-$stamp-$([guid]::NewGuid().ToString('N')).json"
   Move-Item -LiteralPath $Path -Destination $archivePath -ErrorAction Stop
   return $archivePath
 }
