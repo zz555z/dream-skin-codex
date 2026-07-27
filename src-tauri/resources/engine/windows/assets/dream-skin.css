@@ -353,13 +353,7 @@ html.codex-dream-skin.dream-safe-center .dream-home > div:first-child > div:firs
   text-underline-offset: 4px;
 }
 
-.dream-home > div:first-child > div:first-child > div:first-child > div:nth-child(2),
 .dream-home .dream-skin-home-suggestions-slot {
-  left: 0 !important;
-  right: 0 !important;
-  top: 100% !important;
-  margin-top: 16px !important;
-  position: absolute !important;
   z-index: 3 !important;
   display: block !important;
   visibility: visible !important;
@@ -372,14 +366,21 @@ html.codex-dream-skin.dream-safe-center .dream-home > div:first-child > div:firs
 
 .dream-home .group\/home-suggestions,
 .dream-home .dream-skin-home-suggestions {
-  display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  gap: 12px !important;
+  display: block !important;
   width: 100% !important;
   overflow: visible !important;
   visibility: visible !important;
   opacity: 1 !important;
   pointer-events: auto !important;
+}
+
+.dream-home .dream-skin-home-suggestions-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: auto !important;
+  padding-left: 0 !important;
 }
 
 .dream-home .group\/home-suggestions button,
@@ -725,7 +726,6 @@ html.codex-dream-skin.dream-art-wide main.main-surface
 
 .dream-skin-home .dream-skin-home-suggestions-slot,
 .dream-home .dream-skin-home-suggestions-slot {
-  position: absolute !important;
   z-index: 3 !important;
   display: block !important;
   visibility: visible !important;
@@ -740,14 +740,22 @@ html.codex-dream-skin.dream-art-wide main.main-surface
 .dream-skin-home .dream-skin-home-suggestions,
 .dream-home .group\/home-suggestions,
 .dream-home .dream-skin-home-suggestions {
-  display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  gap: 12px !important;
+  display: block !important;
   width: 100% !important;
   overflow: visible !important;
   visibility: visible !important;
   opacity: 1 !important;
   pointer-events: auto !important;
+}
+
+.dream-skin-home .dream-skin-home-suggestions-grid,
+.dream-home .dream-skin-home-suggestions-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: auto !important;
+  padding-left: 0 !important;
 }
 
 .dream-skin-home .group\/home-suggestions button,
@@ -760,9 +768,18 @@ html.codex-dream-skin.dream-art-wide main.main-surface
   pointer-events: auto !important;
 }
 
-html.codex-dream-skin main.main-surface.dream-skin-home-shell,
-html.codex-dream-skin main.main-surface.dream-home-shell {
-  overflow: visible !important;
+html.codex-dream-skin:has(main.main-surface:is(.dream-home-shell, .dream-skin-home-shell)) [role="main"],
+html.codex-dream-skin :is(.dream-home, .dream-skin-home),
+html.codex-dream-skin :is(.dream-home, .dream-skin-home) * {
+  scrollbar-width: none !important;
+}
+
+html.codex-dream-skin:has(main.main-surface:is(.dream-home-shell, .dream-skin-home-shell)) [role="main"]::-webkit-scrollbar,
+html.codex-dream-skin :is(.dream-home, .dream-skin-home)::-webkit-scrollbar,
+html.codex-dream-skin :is(.dream-home, .dream-skin-home) *::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
 }
 /* END shared:home-suggestions */
 

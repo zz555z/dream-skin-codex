@@ -19,22 +19,81 @@
     return null;
   }
 
+  function findSuggestionSlot(home) {
+    if (!home) return null;
+    try {
+      for (const element of home.querySelectorAll("div.absolute")) {
+        if (element.classList.contains("top-full")) return element;
+      }
+    } catch {}
+    const secondChild = home.children[1];
+    const inner = secondChild?.firstElementChild?.firstElementChild;
+    const slot = inner?.children?.[1];
+    return slot?.classList?.contains("absolute") ? slot : null;
+  }
+
+  function applySuggestionGrid(slot) {
+    if (!slot) return;
+    const buttons = [...slot.querySelectorAll("button")];
+    if (buttons.length < 2) return;
+    const buttonParent = buttons[0].parentElement;
+    if (!buttonParent || buttonParent.querySelectorAll("button").length < 2) return;
+
+    buttonParent.classList.add("dream-skin-home-suggestions-grid");
+    buttonParent.style.setProperty("display", "grid", "important");
+    buttonParent.style.setProperty("grid-template-columns", `repeat(${Math.min(buttons.length, 4)}, minmax(0, 1fr))`, "important");
+    buttonParent.style.setProperty("gap", "12px", "important");
+    buttonParent.style.setProperty("width", "100%", "important");
+    buttonParent.style.setProperty("min-height", "auto", "important");
+    buttonParent.style.setProperty("padding-left", "0", "important");
+
+    let ancestor = buttonParent.parentElement;
+    while (ancestor && ancestor !== slot) {
+      ancestor.style.setProperty("display", "block", "important");
+      ancestor.style.setProperty("width", "100%", "important");
+      ancestor.style.setProperty("min-width", "0", "important");
+      ancestor.style.setProperty("flex-direction", "row", "important");
+      ancestor = ancestor.parentElement;
+    }
+    slot.style.setProperty("overflow", "visible", "important");
+    slot.style.setProperty("height", "auto", "important");
+    slot.style.setProperty("max-height", "none", "important");
+    for (const button of buttons) {
+      button.style.setProperty("width", "auto", "important");
+      button.style.setProperty("min-width", "0", "important");
+    }
+  }
+
   function markHomeSuggestions(home) {
     if (!home) return;
-    const suggestionGroup = queryGroupClass(home, 'home-suggestions');
+    let suggestionGroup = queryGroupClass(home, "home-suggestions");
+    let slot = null;
     if (suggestionGroup) {
-      suggestionGroup.classList.add('dream-skin-home-suggestions');
-      const slot = suggestionGroup.parentElement;
-      if (slot) slot.classList.add('dream-skin-home-suggestions-slot');
-    }
-    for (const stale of home.querySelectorAll('.dream-skin-home-suggestions')) {
-      if (!suggestionGroup || stale !== suggestionGroup) {
-        stale.classList.remove('dream-skin-home-suggestions');
+      suggestionGroup.classList.add("dream-skin-home-suggestions");
+      slot = suggestionGroup.parentElement;
+      if (slot) slot.classList.add("dream-skin-home-suggestions-slot");
+    } else {
+      slot = findSuggestionSlot(home);
+      if (slot) {
+        slot.classList.add("dream-skin-home-suggestions-slot");
+        const buttons = slot.querySelectorAll("button");
+        if (buttons.length >= 2) {
+          const cardContainer = slot.firstElementChild?.querySelectorAll("button").length >= 2
+            ? slot.firstElementChild : slot;
+          cardContainer.classList.add("dream-skin-home-suggestions");
+          suggestionGroup = cardContainer;
+        }
       }
     }
-    for (const stale of home.querySelectorAll('.dream-skin-home-suggestions-slot')) {
-      if (!stale.querySelector('.dream-skin-home-suggestions') && !queryGroupClass(stale, 'home-suggestions')) {
-        stale.classList.remove('dream-skin-home-suggestions-slot');
+    if (slot) applySuggestionGrid(slot);
+    for (const stale of home.querySelectorAll(".dream-skin-home-suggestions")) {
+      if (!suggestionGroup || stale !== suggestionGroup) {
+        stale.classList.remove("dream-skin-home-suggestions");
+      }
+    }
+    for (const stale of home.querySelectorAll(".dream-skin-home-suggestions-slot")) {
+      if (stale !== slot && !stale.querySelector(".dream-skin-home-suggestions") && !queryGroupClass(stale, "home-suggestions")) {
+        stale.classList.remove("dream-skin-home-suggestions-slot");
       }
     }
   }
@@ -44,8 +103,32 @@
     scope.querySelectorAll('.dream-skin-home-suggestions').forEach((node) => {
       node.classList.remove('dream-skin-home-suggestions');
     });
+    scope.querySelectorAll('.dream-skin-home-suggestions-grid').forEach((node) => {
+      node.classList.remove('dream-skin-home-suggestions-grid');
+      node.style.removeProperty('display');
+      node.style.removeProperty('grid-template-columns');
+      node.style.removeProperty('gap');
+      node.style.removeProperty('width');
+      node.style.removeProperty('min-height');
+      node.style.removeProperty('padding-left');
+      node.querySelectorAll('button').forEach((button) => {
+        button.style.removeProperty('width');
+        button.style.removeProperty('min-width');
+      });
+      let ancestor = node.parentElement;
+      while (ancestor && !ancestor.classList.contains('dream-skin-home-suggestions-slot')) {
+        ancestor.style.removeProperty('display');
+        ancestor.style.removeProperty('width');
+        ancestor.style.removeProperty('min-width');
+        ancestor.style.removeProperty('flex-direction');
+        ancestor = ancestor.parentElement;
+      }
+    });
     scope.querySelectorAll('.dream-skin-home-suggestions-slot').forEach((node) => {
       node.classList.remove('dream-skin-home-suggestions-slot');
+      node.style.removeProperty('overflow');
+      node.style.removeProperty('height');
+      node.style.removeProperty('max-height');
     });
   }
   /* END shared:mark-home-suggestions */
