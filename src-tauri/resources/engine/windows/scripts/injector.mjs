@@ -579,14 +579,18 @@ async function readThemeSourceStamp(loadedTheme) {
 async function probeSession(session) {
   return session.evaluate(`(() => {
     const markers = {
-      shell: Boolean(document.querySelector('main.main-surface')),
+      shell: Boolean(
+        document.querySelector('main.main-surface') ||
+        document.querySelector('main') ||
+        document.querySelector('[role="main"]')
+      ),
       sidebar: Boolean(document.querySelector('aside.app-shell-left-panel')),
       composer: Boolean(document.querySelector('.composer-surface-chrome')),
       main: Boolean(document.querySelector('[role="main"]')),
     };
     return {
       markers,
-      codex: location.protocol === 'app:' && markers.shell && markers.sidebar && (markers.composer || markers.main),
+      codex: location.protocol === 'app:' && markers.shell,
     };
   })()`);
 }
@@ -665,9 +669,10 @@ export function earlyPayloadFor(payload, revision) {
       if (window[generationKey] !== generation) { stop(); return true; }
       const root = document.documentElement;
       if (!root || !document.body) return false;
-      const shell = document.querySelector('main.main-surface');
-      const sidebar = document.querySelector('aside.app-shell-left-panel');
-      if (!shell || !sidebar) return false;
+      const shell = document.querySelector('main.main-surface') ||
+        document.querySelector('main') ||
+        document.querySelector('[role="main"]');
+      if (!shell) return false;
       stop();
       ${payload};
       window[appliedKey] = generation;
@@ -1461,6 +1466,14 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
   const verificationSource = verifySession.toString();
   if (/Boolean\(result\.(?:composer|sidebar)\)|result\.chromePointerEvents\s*===|result\.cards\.length|result\.(?:homeRoute|homePresent)/.test(verificationSource)) {
     throw new Error("Skin verification must not depend on mutable Codex layout selectors");
+  }
+  const probeSource = probeSession.toString();
+  if (/codex:[^}]*markers\.(?:sidebar|composer|main)/s.test(probeSource)) {
+    throw new Error("Codex target detection must not require mutable layout markers");
+  }
+  const earlyPayload = earlyPayloadFor(selfTestPayload.payload, selfTestPayload.fingerprint);
+  if (/if\s*\([^)]*sidebar/.test(earlyPayload)) {
+    throw new Error("Early injection must not require the optional Codex sidebar");
   }
   console.log(JSON.stringify({ pass: true, version: SKIN_VERSION, test: "loopback-cdp-validation" }));
   } else if (options.mode === "check-payload") {
