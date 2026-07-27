@@ -65,10 +65,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-const STATUS_TIMEOUT_MS = 4000;
+const STATUS_TIMEOUT_MS = 8000;
 const THEMES_TIMEOUT_MS = 8000;
 const PREVIEW_TIMEOUT_MS = 6000;
 const PREVIEW_CONCURRENCY = 4;
+const POST_ACTION_REFRESH_ATTEMPTS = 3;
 
 
 function fileNameFromPath(path: string): string {
@@ -342,11 +343,11 @@ export default function App() {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { silent?: boolean }): Promise<boolean> => {
     if (IS_BROWSER_PREVIEW) {
       setStatus(BROWSER_PREVIEW_STATUS);
       setThemes([]);
-      return;
+      return true;
     }
     try {
       const nextStatus = await withTimeout(api.getStatus(), STATUS_TIMEOUT_MS);
@@ -371,7 +372,9 @@ export default function App() {
       } else {
         setThemes([]);
       }
+      return true;
     } catch (error) {
+      if (options?.silent) return false;
       const message = error instanceof Error ? error.message : String(error);
       // Keep UI responsive even when Windows status PowerShell hangs/times out.
       setStatus((current) =>
@@ -403,6 +406,7 @@ export default function App() {
             },
       );
       showToast(localizeErrorMessage(message, "状态刷新超时"), "err");
+      return false;
     }
   }, [loadThemePreviews, showToast]);
 
@@ -426,6 +430,7 @@ export default function App() {
         window.requestAnimationFrame(() => resolve());
       });
       let slowTimer: number | undefined;
+      let actionSucceeded = false;
       try {
         slowTimer = window.setTimeout(() => {
           setBusyLabel("后台仍在处理，请勿重复操作…");
@@ -437,6 +442,7 @@ export default function App() {
         const message = result.ok
           ? successText
           : localizeErrorMessage(result.message || `${label}失败`);
+        actionSucceeded = result.ok;
         showToast(message, result.ok ? "ok" : "err");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -447,8 +453,17 @@ export default function App() {
         setBusy(false);
         setBusyLabel("处理中…");
         // Do not keep the blocking overlay up while the theme library reloads
-        // and serializes all preview images over IPC.
-        void refresh();
+        // and serializes all preview images over IPC. A successful engine
+        // action must not be replaced by a transient status-poll timeout.
+        void (async () => {
+          const attempts = actionSucceeded ? POST_ACTION_REFRESH_ATTEMPTS : 1;
+          for (let attempt = 0; attempt < attempts; attempt += 1) {
+            if (await refresh({ silent: actionSucceeded })) return;
+            if (attempt + 1 < attempts) {
+              await new Promise((resolve) => window.setTimeout(resolve, 750));
+            }
+          }
+        })();
       }
     },
     [refresh, showToast],
