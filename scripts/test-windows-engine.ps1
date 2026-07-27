@@ -83,7 +83,8 @@ try {
   $failedArchive = Archive-DreamSkinStateFile -Path $failedState -Reason failed
   Assert-DreamSkinTest ($failedArchive -and (Test-Path -LiteralPath $failedArchive -PathType Leaf)) `
     'Failed Windows state was not archived.'
-  Assert-DreamSkinTest ([System.IO.Path]::GetFileName($failedArchive).StartsWith('state.failed-')) `
+  $failedArchiveName = [System.IO.Path]::GetFileName($failedArchive)
+  Assert-DreamSkinTest ($failedArchiveName.StartsWith('state.failed-')) `
     'Failed Windows state archive name is incorrect.'
 
   Write-Host 'Windows engine checks passed.'

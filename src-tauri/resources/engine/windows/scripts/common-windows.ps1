@@ -812,10 +812,8 @@ function Write-DreamSkinState {
 }
 
 function Archive-DreamSkinStateFile {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [ValidateSet('stale', 'failed')][string]$Reason = 'stale'
-  )
+  param([Parameter(Mandatory = $true)][string]$Path, [string]$Reason = 'stale')
+  if ($Reason -ne 'stale' -and $Reason -ne 'failed') { throw "Invalid state archive reason: $Reason" }
   if (-not (Test-Path -LiteralPath $Path)) { return $null }
   $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
   $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
