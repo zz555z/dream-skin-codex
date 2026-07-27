@@ -232,17 +232,14 @@ html.codex-dream-skin .dream-home {
 }
 
 .dream-home > div:first-child {
-  min-height: 100% !important;
-  padding-top: 24px !important;
+  box-sizing: border-box !important;
+  padding-top: 15px !important;
 }
 
 .dream-home > div:first-child > div:first-child {
-  /* Keep room for hero copy + four home suggestion cards. */
-  flex: 0 0 auto !important;
-  min-height: clamp(500px, 56vh, 620px) !important;
   align-items: flex-start !important;
-  padding-bottom: 18px !important;
-  overflow: visible !important;
+  padding-bottom: 0 !important;
+  position: relative !important;
 }
 
 .dream-home > div:first-child > div:first-child > div:first-child {
@@ -250,11 +247,7 @@ html.codex-dream-skin .dream-home {
   isolation: isolate;
   width: calc(100% - 56px) !important;
   max-width: 1180px !important;
-  height: clamp(230px, 27cqw, 326px) !important;
-  min-height: 230px !important;
-  flex: 0 1 auto !important;
   padding: 0 !important;
-  overflow: hidden !important;
   border: 1px solid var(--dream-line) !important;
   border-radius: 20px !important;
   background-image: var(--dream-art) !important;
@@ -667,14 +660,7 @@ html.codex-dream-skin.dream-art-wide main.main-surface
     padding-top: 16px !important;
   }
 
-  .dream-home > div:first-child > div:first-child {
-    flex-basis: 370px !important;
-    min-height: 370px !important;
-  }
-
   .dream-home > div:first-child > div:first-child > div:first-child {
-    height: 220px !important;
-    min-height: 220px !important;
     border-radius: 16px !important;
   }
 

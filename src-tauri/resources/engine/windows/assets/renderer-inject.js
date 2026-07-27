@@ -487,7 +487,11 @@
       style.dataset.dreamVersion = "3";
     }
 
-    const home = document.querySelector('[role="main"]:has([data-testid="home-icon"])');
+    const homeIndicator = document.querySelector('[data-testid="home-icon"]');
+    const home = homeIndicator?.closest('[role="main"]') ||
+      [...document.querySelectorAll('[role="main"]')].find((candidate) =>
+        candidate.querySelector('[data-feature="game-source"]') &&
+        queryGroupClass(candidate, "home-suggestions")) || null;
     const mainCandidates = [...document.querySelectorAll('[role="main"]')];
     if (!mainCandidates.length) mainCandidates.push(shellMain);
     for (const candidate of mainCandidates) {

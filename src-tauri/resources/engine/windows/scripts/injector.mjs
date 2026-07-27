@@ -1475,6 +1475,15 @@ if (path.resolve(process.argv[1] || "") === path.resolve(scriptPath)) {
   if (/if\s*\([^)]*sidebar/.test(earlyPayload)) {
     throw new Error("Early injection must not require the optional Codex sidebar");
   }
+  const selfTestCss = await fs.readFile(path.join(root, "assets", "dream-skin.css"), "utf8");
+  const forcesHomeHeight = [
+    /\.dream-home\s*>\s*div:first-child\s*\{[^}]*min-height\s*:/s,
+    /\.dream-home\s*>\s*div:first-child\s*>\s*div:first-child\s*\{[^}]*(?:min-height|flex-basis)\s*:/s,
+    /\.dream-home\s*>\s*div:first-child\s*>\s*div:first-child\s*>\s*div:first-child\s*\{[^}]*(?:height|min-height)\s*:/s,
+  ].some((pattern) => pattern.test(selfTestCss));
+  if (forcesHomeHeight) {
+    throw new Error("Windows home layout must preserve the native viewport height");
+  }
   console.log(JSON.stringify({ pass: true, version: SKIN_VERSION, test: "loopback-cdp-validation" }));
   } else if (options.mode === "check-payload") {
     const loaded = await loadPayload(options.themeDir);
