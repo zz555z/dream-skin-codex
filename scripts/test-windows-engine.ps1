@@ -13,6 +13,13 @@ function Assert-DreamSkinTest {
 
 Write-Host 'Parsing Windows PowerShell scripts...'
 foreach ($file in Get-ChildItem -LiteralPath $scriptRoot -Filter '*.ps1' -File) {
+  $scriptBytes = [System.IO.File]::ReadAllBytes($file.FullName)
+  $hasNonAscii = @($scriptBytes | Where-Object { $_ -ge 128 }).Count -gt 0
+  $hasUtf8Bom = $scriptBytes.Length -ge 3 -and $scriptBytes[0] -eq 0xEF -and
+    $scriptBytes[1] -eq 0xBB -and $scriptBytes[2] -eq 0xBF
+  if ($hasNonAscii -and -not $hasUtf8Bom) {
+    throw "Windows PowerShell 5.1 requires a UTF-8 BOM for non-ASCII script: $($file.Name)"
+  }
   $tokens = $null
   $parseErrors = $null
   $null = [System.Management.Automation.Language.Parser]::ParseFile(
