@@ -1,11 +1,11 @@
 mod engine;
 
 use engine::{
-    apply_skin, decode_base64_payload, delete_theme, get_status, import_image_theme,
-    initialize_windows_diagnostics, install_engine, list_themes, max_import_image_bytes,
-    pause_skin, preview_image, resolve_theme_image_path, restore_skin, save_upload_bytes,
-    set_windows_diagnostics, switch_theme, theme_preview, ActionResult, ImportOptions,
-    StatusSnapshot, ThemeSummary,
+    active_theme_image, apply_skin, decode_base64_payload, delete_theme, get_status,
+    import_image_theme, initialize_windows_diagnostics, install_engine, list_themes,
+    max_import_image_bytes, pause_skin, preview_image, resolve_theme_image_path, restore_skin,
+    save_upload_bytes, set_windows_diagnostics, switch_theme, theme_preview, ActionResult,
+    ImportOptions, StatusSnapshot, ThemeSummary,
 };
 use serde::Deserialize;
 use std::fs;
@@ -52,17 +52,27 @@ impl AppState {
     }
 }
 
+/// Releases the busy flag when dropped, so an action future dropped mid-await
+/// (webview reload / window close) cannot leave the app stuck reporting
+/// "已有操作进行中" until restart.
+struct BusyGuard<'a>(&'a AppState);
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.end();
+    }
+}
+
 async fn run_blocking<T, F>(state: &AppState, work: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     state.try_begin()?;
-    let result = tauri::async_runtime::spawn_blocking(work)
+    let _guard = BusyGuard(state);
+    tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| format!("后台任务异常: {e}"));
-    state.end();
-    result?
+        .map_err(|e| format!("后台任务异常: {e}"))?
 }
 
 #[tauri::command]
@@ -97,6 +107,13 @@ async fn preview_theme(id: String) -> Result<String, String> {
 #[tauri::command]
 async fn preview_local_image(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || preview_image(&path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("后台任务异常: {e}"))?
+}
+
+#[tauri::command]
+async fn get_active_theme_image() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| active_theme_image().map_err(|e| e.to_string()))
         .await
         .map_err(|e| format!("后台任务异常: {e}"))?
 }
@@ -246,65 +263,28 @@ async fn import_dream_theme(
 }
 
 #[tauri::command]
-async fn pick_and_import_theme(
-    app: AppHandle,
-    state: State<'_, Arc<AppState>>,
-    payload: ImportPayload,
-) -> Result<ActionResult, String> {
-    // File dialog must stay on main thread.
-    state.try_begin()?;
+async fn pick_image_path(app: AppHandle) -> Result<Option<String>, String> {
+    let extensions: &[&str] = if cfg!(target_os = "windows") {
+        &["png", "jpg", "jpeg", "webp"]
+    } else {
+        &["png", "jpg", "jpeg", "webp", "heic", "tif", "tiff"]
+    };
+    // blocking_pick_file pumps the dialog on the main thread while parking
+    // this worker thread. Only the selected path crosses IPC, keeping large
+    // originals out of the base64 bridge.
     let picked = app
         .dialog()
         .file()
         .set_title("选择一张纯背景图（建议 2560×1440，无 UI）")
-        .add_filter(
-            "Images",
-            &["png", "jpg", "jpeg", "webp", "heic", "tif", "tiff"],
-        )
+        .add_filter("Images", extensions)
         .blocking_pick_file();
-    let path = match picked {
-        Some(file) => match file.into_path() {
-            Ok(path) => path.display().to_string(),
-            Err(error) => {
-                state.end();
-                return Err(format!("无法读取选中路径: {error}"));
-            }
-        },
-        None => {
-            state.end();
-            return Err("已取消选择".into());
-        }
-    };
-
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        import_image_theme(
-            Some(&app),
-            &path,
-            ImportOptions {
-                name: payload.name,
-                appearance: payload.appearance,
-                safe_area: payload.safe_area,
-                task_mode: payload.task_mode,
-                home_layout: payload.home_layout,
-                focus_x: payload.focus_x,
-                focus_y: payload.focus_y,
-                surface_style: payload.surface_style,
-                card_size: payload.card_size,
-                hero_title: payload.hero_title,
-                hero_subtitle: payload.hero_subtitle,
-                project_label: payload.project_label,
-                status_text: payload.status_text,
-                accent_color: payload.accent_color,
-                save_library: payload.save_library.or(Some(true)),
-                apply_now: payload.apply_now.or(Some(true)),
-            },
-        )
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("后台任务异常: {e}"));
-    state.end();
-    result?
+    match picked {
+        Some(file) => file
+            .into_path()
+            .map(|path| Some(path.display().to_string()))
+            .map_err(|error| format!("无法读取选中路径: {error}")),
+        None => Ok(None),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -320,6 +300,7 @@ pub fn run() {
             get_themes,
             preview_theme,
             preview_local_image,
+            get_active_theme_image,
             install_dream_engine,
             apply_dream_skin,
             pause_dream_skin,
@@ -328,7 +309,7 @@ pub fn run() {
             delete_dream_theme,
             set_diagnostics,
             import_dream_theme,
-            pick_and_import_theme,
+            pick_image_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Dream Skin app");

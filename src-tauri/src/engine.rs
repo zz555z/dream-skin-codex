@@ -67,7 +67,7 @@ pub struct StatusSnapshot {
     pub injector_alive: bool,
     pub applied_theme_name: String,
     pub applied_theme_id: String,
-    pub active_image_data_url: Option<String>,
+    pub active_image_fingerprint: String,
     pub busy: bool,
     pub install_hint: String,
 }
@@ -236,6 +236,23 @@ fn recursive_copy(src: &Path, dest: &Path) -> EngineResult<()> {
     Ok(())
 }
 
+/// APP_ENGINE_VERSION is not reliably bumped on every release, so version
+/// comparison cannot tell whether the installed copy is current. Compare file
+/// contents instead: hotfixed bundles still sync, unchanged files skip the
+/// copy (less disk churn and antivirus scanning on Windows).
+fn file_contents_equal(a: &Path, b: &Path) -> bool {
+    let (Ok(meta_a), Ok(meta_b)) = (fs::metadata(a), fs::metadata(b)) else {
+        return false;
+    };
+    if !meta_a.is_file() || !meta_b.is_file() || meta_a.len() != meta_b.len() {
+        return false;
+    }
+    match (fs::read(a), fs::read(b)) {
+        (Ok(bytes_a), Ok(bytes_b)) => bytes_a == bytes_b,
+        _ => false,
+    }
+}
+
 /// Best-effort refresh of selected engine files from the app bundle/resources.
 /// Used so restore/control fixes ship without forcing a full reinstall.
 fn sync_engine_files(app: &AppHandle, relative_paths: &[&str]) -> EngineResult<()> {
@@ -247,10 +264,12 @@ fn sync_engine_files(app: &AppHandle, relative_paths: &[&str]) -> EngineResult<(
         if !from.is_file() {
             continue;
         }
-        if let Some(parent) = to.parent() {
-            fs::create_dir_all(parent)?;
+        if !file_contents_equal(&from, &to) {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&from, &to)?;
         }
-        fs::copy(&from, &to)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -911,6 +930,70 @@ pub fn preview_image(path: &str) -> EngineResult<String> {
     image_to_data_url(&file)
 }
 
+fn applied_theme_id_from(state_json: Option<&Value>, active_theme: Option<&Value>) -> String {
+    state_json
+        .and_then(|v| read_json_field(v, "appliedThemeId"))
+        .or_else(|| active_theme.and_then(|v| read_json_field(v, "id")))
+        .unwrap_or_default()
+}
+
+/// Prefer the currently applied library pack for the stage preview.
+/// Fall back to the active theme dir only when no applied id is available.
+fn resolve_active_image_path(
+    applied_theme_id: &str,
+    active_theme: Option<&Value>,
+) -> Option<PathBuf> {
+    let from_applied = (!applied_theme_id.is_empty())
+        .then_some(applied_theme_id)
+        .and_then(|id| {
+            let pack = themes_root().ok()?.join(id);
+            let theme = read_json_file(&pack.join("theme.json")).ok()?;
+            let image = read_json_field(&theme, "image")?;
+            let path = pack.join(Path::new(&image).file_name()?);
+            path.is_file().then_some(path)
+        });
+    from_applied.or_else(|| {
+        active_theme.and_then(|theme| {
+            let image = read_json_field(theme, "image")?;
+            let path = theme_dir().ok()?.join(Path::new(&image).file_name()?);
+            path.is_file().then_some(path)
+        })
+    })
+}
+
+/// Cheap identity for the active image so the UI only pulls the heavy data
+/// URL when the image actually changed.
+fn image_fingerprint(path: &Path) -> Option<String> {
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    Some(format!("{}|{}|{}", path.display(), modified, meta.len()))
+}
+
+pub fn active_theme_image() -> EngineResult<Option<String>> {
+    let state_path = state_root()?.join("state.json");
+    let theme_path = theme_dir()?.join("theme.json");
+    let state_json = state_path
+        .is_file()
+        .then(|| read_json_file(&state_path).ok())
+        .flatten();
+    let active_theme = theme_path
+        .is_file()
+        .then(|| read_json_file(&theme_path).ok())
+        .flatten();
+    let applied_theme_id = applied_theme_id_from(state_json.as_ref(), active_theme.as_ref());
+    let Some(path) = resolve_active_image_path(&applied_theme_id, active_theme.as_ref()) else {
+        return Ok(None);
+    };
+    // Mirror the old status behavior: oversized/unreadable images degrade to
+    // "no stage art" instead of failing the request.
+    Ok(image_to_data_url(&path).ok())
+}
+
 pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
     let platform = platform_name().to_string();
     let installed = engine_installed();
@@ -1006,32 +1089,15 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
         })
         .unwrap_or_default();
 
-    let applied_theme_id = state_json
-        .as_ref()
-        .and_then(|v| read_json_field(v, "appliedThemeId"))
-        .or_else(|| active_theme.as_ref().and_then(|v| read_json_field(v, "id")))
-        .unwrap_or_default();
+    let applied_theme_id = applied_theme_id_from(state_json.as_ref(), active_theme.as_ref());
 
-    // Prefer the currently applied library pack for the left-card preview.
-    // Fall back to the active theme dir only when no applied id is available.
-    let active_image_data_url = {
-        let from_applied = (!applied_theme_id.is_empty())
-            .then_some(applied_theme_id.as_str())
-            .and_then(|id| {
-                let pack = themes_root().ok()?.join(id);
-                let theme = read_json_file(&pack.join("theme.json")).ok()?;
-                let image = read_json_field(&theme, "image")?;
-                let path = pack.join(Path::new(&image).file_name()?);
-                image_to_data_url(&path).ok()
-            });
-        from_applied.or_else(|| {
-            active_theme.as_ref().and_then(|theme| {
-                let image = read_json_field(theme, "image")?;
-                let path = theme_dir().ok()?.join(Path::new(&image).file_name()?);
-                image_to_data_url(&path).ok()
-            })
-        })
-    };
+    // The stage image is fetched lazily by the UI (get_active_theme_image);
+    // status only carries a cheap fingerprint so unchanged images are never
+    // re-encoded or shipped over IPC on every refresh.
+    let active_image_fingerprint =
+        resolve_active_image_path(&applied_theme_id, active_theme.as_ref())
+            .and_then(|path| image_fingerprint(&path))
+            .unwrap_or_default();
 
     let codex_running = status_json
         .as_ref()
@@ -1066,7 +1132,7 @@ pub fn get_status(app: &AppHandle) -> EngineResult<StatusSnapshot> {
         injector_alive,
         applied_theme_name,
         applied_theme_id,
-        active_image_data_url,
+        active_image_fingerprint,
         busy: false,
         install_hint,
     })
@@ -1304,6 +1370,8 @@ pub fn install_engine(app: &AppHandle) -> EngineResult<ActionResult> {
     )?;
     let mut result = summarize(code, &stdout, &stderr);
     if result.ok {
+        // The staging copy is only needed while the installer runs.
+        let _ = fs::remove_dir_all(&skill_root);
         result.message = format!(
             "引擎已安装到 {}\n{}",
             engine_root()?.display(),

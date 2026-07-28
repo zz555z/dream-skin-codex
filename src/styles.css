@@ -12,8 +12,8 @@
   --ok: #7dcb9b;
   --shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
   --radius: 22px;
-  --font-display: "Newsreader", "Songti SC", serif;
-  --font-body: "Instrument Sans", "PingFang SC", sans-serif;
+  --font-display: "Newsreader Variable", "Newsreader", "Songti SC", serif;
+  --font-body: "Instrument Sans Variable", "Instrument Sans", "PingFang SC", sans-serif;
 }
 
 * { box-sizing: border-box; }

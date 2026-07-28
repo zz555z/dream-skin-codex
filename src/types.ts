@@ -28,7 +28,8 @@ export type StatusSnapshot = {
   injectorAlive: boolean;
   appliedThemeName: string;
   appliedThemeId: string;
-  activeImageDataUrl?: string | null;
+  /** path|mtime|size of the applied image; UI fetches the data URL lazily */
+  activeImageFingerprint: string;
   busy: boolean;
   installHint: string;
 };

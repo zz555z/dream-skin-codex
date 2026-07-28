@@ -1,6 +1,6 @@
 [package]
 name = "dream-skin-app"
-version = "1.2.25"
+version = "1.2.26"
 description = "Codex Dream Skin desktop control panel"
 authors = ["local"]
 edition = "2021"
@@ -24,3 +24,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "dream-skin-app"
 path = "src/main.rs"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

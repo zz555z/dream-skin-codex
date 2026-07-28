@@ -9,6 +9,11 @@ import {
 import type { StatusSnapshot, ThemeSummary } from "./types";
 import { localizeErrorMessage } from "./lib/localizeError";
 import { BACKGROUND_AI_PROMPT_ZH } from "./lib/backgroundPrompt";
+import {
+  fileNameFromPath,
+  resolveThemeName,
+  themeNameFromImage,
+} from "./lib/themeName";
 
 type SelectedImage =
   | { source: "file"; file: File; name: string; size: number }
@@ -29,6 +34,13 @@ const DEFAULT_HOME_LAYOUT = "auto";
 const DEFAULT_SURFACE_STYLE = "solid";
 const DEFAULT_CARD_SIZE = "balanced";
 const IS_BROWSER_PREVIEW = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
+// Status can time out before the first snapshot arrives; guess the platform
+// from the UA so a Mac never sees Windows-only install steps.
+const FALLBACK_PLATFORM = navigator.userAgent.includes("Windows")
+  ? "windows"
+  : navigator.userAgent.includes("Mac")
+    ? "macos"
+    : "unknown";
 const BROWSER_PREVIEW_STATUS: StatusSnapshot = {
   installed: true,
   canInstall: false,
@@ -43,7 +55,7 @@ const BROWSER_PREVIEW_STATUS: StatusSnapshot = {
   injectorAlive: true,
   appliedThemeName: "界面预览",
   appliedThemeId: "",
-  activeImageDataUrl: null,
+  activeImageFingerprint: "",
   busy: false,
   installHint: "",
 };
@@ -72,28 +84,8 @@ const PREVIEW_CONCURRENCY = 4;
 const POST_ACTION_REFRESH_ATTEMPTS = 3;
 
 
-function fileNameFromPath(path: string): string {
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
-}
-
 function isImageFileName(name: string): boolean {
   return IMAGE_EXT.test(name);
-}
-
-/** Theme display name: strip extension from image file name. */
-function themeNameFromImage(fileName: string): string {
-  const base = fileNameFromPath(fileName).trim();
-  const stem = base.replace(/\.[^.]+$/, "").trim();
-  return stem || base || "我的主题";
-}
-
-/** Prefer user-entered name; otherwise image file stem. */
-function resolveThemeName(inputName: string, imageFileName?: string | null): string {
-  const typed = inputName.trim();
-  if (typed) return typed;
-  if (imageFileName) return themeNameFromImage(imageFileName);
-  return "我的主题";
 }
 
 function Chip({ text, kind = "" }: { text: string; kind?: string }) {
@@ -141,11 +133,14 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const dropzoneRef = useRef<HTMLLabelElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const diagnosticClicksRef = useRef(0);
   const actionInFlightRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
   const themePreviewCacheRef = useRef(new Map<string, string>());
+  const [activeImage, setActiveImage] = useState<string | null>(null);
+  const activeImageKeyRef = useRef("");
 
   useEffect(() => {
     if (!advancedOpen) return;
@@ -229,10 +224,22 @@ export default function App() {
   const showToast = useCallback((message: string, kind: "ok" | "err" = "ok") => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     setToast({ message, kind });
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null);
+    // Engine errors can span several lines; keep them up long enough to read.
+    toastTimerRef.current = window.setTimeout(
+      () => {
+        setToast(null);
+        toastTimerRef.current = null;
+      },
+      kind === "err" ? 4200 : 1000,
+    );
+  }, []);
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
-    }, 1000);
+    }
+    setToast(null);
   }, []);
 
   useEffect(() => () => {
@@ -343,6 +350,23 @@ export default function App() {
     }
   }, []);
 
+  /** Fetch the heavy stage image only when its fingerprint changed. */
+  const syncActiveImage = useCallback(async (fingerprint: string) => {
+    if (fingerprint === activeImageKeyRef.current) return;
+    activeImageKeyRef.current = fingerprint;
+    if (!fingerprint) {
+      setActiveImage(null);
+      return;
+    }
+    try {
+      const dataUrl = await withTimeout(api.activeImage(), PREVIEW_TIMEOUT_MS);
+      if (activeImageKeyRef.current === fingerprint) setActiveImage(dataUrl);
+    } catch {
+      // Reset so the next status refresh retries the fetch.
+      if (activeImageKeyRef.current === fingerprint) activeImageKeyRef.current = "";
+    }
+  }, []);
+
   const refresh = useCallback(async (options?: { silent?: boolean }): Promise<boolean> => {
     if (IS_BROWSER_PREVIEW) {
       setStatus(BROWSER_PREVIEW_STATUS);
@@ -352,6 +376,7 @@ export default function App() {
     try {
       const nextStatus = await withTimeout(api.getStatus(), STATUS_TIMEOUT_MS);
       setStatus(nextStatus);
+      void syncActiveImage(nextStatus.activeImageFingerprint || "");
       if (nextStatus.installed) {
         try {
           const nextThemes = await withTimeout(api.getThemes(), THEMES_TIMEOUT_MS);
@@ -367,7 +392,7 @@ export default function App() {
           setThemes(themesWithCachedPreviews);
           void loadThemePreviews(themesWithCachedPreviews);
         } catch {
-          setThemes([]);
+          // Transient theme-list failure: keep showing the previous list.
         }
       } else {
         setThemes([]);
@@ -376,7 +401,7 @@ export default function App() {
     } catch (error) {
       if (options?.silent) return false;
       const message = error instanceof Error ? error.message : String(error);
-      // Keep UI responsive even when Windows status PowerShell hangs/times out.
+      // Keep UI responsive even when the status script hangs/times out.
       setStatus((current) =>
         current
           ? {
@@ -389,18 +414,18 @@ export default function App() {
           : {
               installed: false,
               canInstall: true,
-              platform: "windows",
+              platform: FALLBACK_PLATFORM,
               engineRoot: "",
               stateRoot: "",
               bundledEngineRoot: "",
               engineVersion: "unknown",
               session: "off",
-              port: 9335,
+              port: FALLBACK_PLATFORM === "windows" ? 9335 : 9341,
               codexRunning: false,
               injectorAlive: false,
               appliedThemeName: "",
               appliedThemeId: "",
-              activeImageDataUrl: null,
+              activeImageFingerprint: "",
               busy: false,
               installHint: "状态刷新超时。界面仍可操作；可稍后点「刷新」重试。",
             },
@@ -408,7 +433,7 @@ export default function App() {
       showToast(localizeErrorMessage(message, "状态刷新超时"), "err");
       return false;
     }
-  }, [loadThemePreviews, showToast]);
+  }, [loadThemePreviews, showToast, syncActiveImage]);
 
   useEffect(() => {
     void refresh();
@@ -571,6 +596,17 @@ export default function App() {
     },
     [isWindows, selectedImageLimit, showToast, themeName],
   );
+
+  const openNativePicker = useCallback(async () => {
+    try {
+      const path = await api.pickImagePath();
+      if (!path) return;
+      acceptSelectedImage({ source: "path", path, name: fileNameFromPath(path) });
+    } catch {
+      // Native dialog unavailable: fall back to the hidden HTML input.
+      fileInputRef.current?.click();
+    }
+  }, [acceptSelectedImage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -848,9 +884,7 @@ export default function App() {
             <div
               className="stage-art"
               style={{
-                backgroundImage: status?.activeImageDataUrl
-                  ? `url(${status.activeImageDataUrl})`
-                  : "none",
+                backgroundImage: activeImage ? `url(${activeImage})` : "none",
               }}
             />
             <div className="stage-scrim" />
@@ -901,6 +935,14 @@ export default function App() {
           <label
             ref={dropzoneRef}
             className={`dropzone${dragOver ? " drag" : ""}${previewUrl ? " has-preview" : ""}`}
+            onClick={(event) => {
+              if (!installed || IS_BROWSER_PREVIEW) return;
+              // Fallback clicks forwarded to the input keep default behavior.
+              if (event.target === fileInputRef.current) return;
+              // Native picker returns a plain path: no base64 trip over IPC.
+              event.preventDefault();
+              void openNativePicker();
+            }}
             onDragEnter={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -937,6 +979,7 @@ export default function App() {
           >
             <input
               type="file"
+              ref={fileInputRef}
               accept={isWindows ? ".png,.jpg,.jpeg,.webp" : "image/*,.heic,.tif,.tiff"}
               hidden
               disabled={!installed}
@@ -1472,7 +1515,12 @@ export default function App() {
       ) : null}
 
       {toast ? (
-        <div className={`result-overlay ${toast.kind}`} role="status" aria-live="polite">
+        <div
+          className={`result-overlay ${toast.kind}`}
+          role="status"
+          aria-live="polite"
+          onClick={dismissToast}
+        >
           <div className={`result-card ${toast.kind}`}>
             <div className="result-icon" aria-hidden>
               {toast.kind === "ok" ? "✓" : "!"}

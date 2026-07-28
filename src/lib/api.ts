@@ -9,6 +9,8 @@ export const api = {
   getThemes: () => invoke<ThemeSummary[]>("get_themes"),
   previewTheme: (id: string) => invoke<string>("preview_theme", { id }),
   previewImage: (path: string) => invoke<string>("preview_local_image", { path }),
+  activeImage: () => invoke<string | null>("get_active_theme_image"),
+  pickImagePath: () => invoke<string | null>("pick_image_path"),
   install: () => invoke<ActionResult>("install_dream_engine"),
   apply: () => invoke<ActionResult>("apply_dream_skin"),
   pause: () => invoke<ActionResult>("pause_dream_skin"),
@@ -18,8 +20,6 @@ export const api = {
   setDiagnostics: (enabled: boolean) => invoke<boolean>("set_diagnostics", { enabled }),
   importTheme: (payload: ImportPayload) =>
     invoke<ActionResult>("import_dream_theme", { payload }),
-  pickAndImport: (payload: ImportPayload) =>
-    invoke<ActionResult>("pick_and_import_theme", { payload }),
 };
 
 export async function fileToBase64(file: File, maxBytes = MAX_IMAGE_BYTES): Promise<string> {
